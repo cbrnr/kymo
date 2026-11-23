@@ -23,7 +23,7 @@ crates/kymo-core     library, no GUI dependencies
 crates/kymo          eframe/egui-wgpu viewer (`kymo path/to/file.bdf`); everything lives in its lib, `main.rs` only dispatches the parsed command
 crates/kymo-testgen  generates synthetic EDF/BDF, BrainVision, EEGLAB, GDF, FIFF, XDF and BVRF files for tests and benchmarks
 scripts/             Python helpers (validation against MNE)
-packaging/           macOS bundle and disk image, Windows installer, Linux desktop files, AUR package
+packaging/           macOS bundle and disk image, Windows installer, Linux desktop files (the AUR package lives on the AUR)
 CONTRIBUTING.md      toolchain setup per platform, build and checks, architecture, releasing
 CHANGELOG.md         release notes in MNELAB's format; user-visible changes add a line under [UNRELEASED]
 ```

@@ -1,5 +1,7 @@
 # Changelog
 
+## [UNRELEASED] · 2026-11-23
+
 ## [0.1.0] · 2026-11-23
 ### ✨ Added
 - Add a viewer for large EEG and MEG recordings that opens them almost instantly, scrolls and zooms smoothly on the GPU, keeps every peak visible, and uses little memory regardless of file size.
