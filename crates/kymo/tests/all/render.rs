@@ -1117,10 +1117,16 @@ fn loading_parts_are_hatched() {
             }
         }
     }
+    // 0.5 is 127.5 in 8 bits, which drivers may round either way.
     let x = a.ceil() as u32 + 1;
-    assert_eq!(
-        image.at(x, (6 - x % 6) % 6),
-        HATCH.map(|c| (c * 255.0).round() as u8)
+    let pixel = image.at(x, (6 - x % 6) % 6);
+    let expected = HATCH.map(|c| c * 255.0);
+    assert!(
+        pixel
+            .iter()
+            .zip(expected)
+            .all(|(&p, e)| (f32::from(p) - e).abs() <= 1.0),
+        "hatch color {pixel:?}, expected {expected:?}"
     );
 }
 
