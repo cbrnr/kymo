@@ -215,9 +215,10 @@ proptest! {
             }
         }
         // Both blocks are drawn from the left edge to the right edge, or to the last sample
-        // where the recording ends on screen.
-        let last = (grid.time_of(grid.len() - 1) - start) * per_px;
-        let right = (last.floor() as u32 + 1).min(width);
+        // where the recording ends on screen. At the shader's precision, and reaching the
+        // edge tolerance past it, as the draws do.
+        let last = f64::from(((grid.time_of(grid.len() - 1) - start) * per_px) as f32);
+        let right = ((last + f64::from(EDGE_TOLERANCE)).floor() as u32 + 1).min(width);
         for block in [0, 1] {
             let draws: Vec<_> = frame.draws.iter().filter(|d| d.part.tile.key().block.index == block).collect();
             prop_assert!(!draws.is_empty());
