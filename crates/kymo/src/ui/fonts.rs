@@ -38,14 +38,18 @@ pub fn apply_fonts(ctx: &egui::Context, system: bool) {
     ctx.set_fonts(fonts);
 }
 
-/// SF Pro in its text cut, as macOS shows it at the interface's sizes: a variable font
-/// whose default instance is the display cut (optical size 28), with tighter spacing and
-/// thinner strokes, which looks cramped and light at 13 points. macOS uses optical size 17,
-/// the axis's smallest, for every size up to 17 points; all of Kymo's text is that small.
-/// Segoe UI is no variable font; the tweak changes nothing there.
+/// SF Pro as macOS shows it at the interface's sizes. A variable font whose default
+/// instance is the display cut (optical size 28), with tighter spacing and thinner strokes,
+/// which looks cramped and light at 13 points: macOS uses optical size 17, the axis's
+/// smallest, for every size up to 17 points, and all of Kymo's text is that small. Its
+/// grade is raised to 500, as Core Text's font smoothing makes strokes heavier than egui
+/// draws them: with it, text has as much ink as Core Text gives it, and the edges stay as
+/// soft (grade, unlike weight, keeps the widths; a steeper coverage curve gives the ink too
+/// but hardens the edges, so strokes look jagged). Segoe UI is no variable font; the tweak
+/// changes nothing there.
 fn text_cut() -> FontTweak {
     FontTweak {
-        coords: VariationCoords::new([(b"opsz", 17.0)]),
+        coords: VariationCoords::new([(b"opsz", 17.0), (b"GRAD", 500.0)]),
         ..Default::default()
     }
 }

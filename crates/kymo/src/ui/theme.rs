@@ -1,6 +1,7 @@
 //! Kymo's light and dark looks: egui's, with text, controls and the selection given the
 //! contrast of the system's own apps (modeled on macOS's semantic colors), the selection in
-//! the system's accent color, and text drawn as heavily as macOS draws it.
+//! the system's accent color, and glyphs unhinted on macOS, as macOS draws them (their
+//! weight comes from the font, see [`crate::ui::fonts`]).
 //!
 //! Text has at least WCAG's 4.5:1 against the panels, weak text too (egui's default weak
 //! text, its normal text at 60 % opacity, had less than 3:1). Controls get a border, so that
@@ -8,7 +9,6 @@
 //! colors are not changed.
 
 use eframe::egui::{self, Color32, Rgba, Stroke, Visuals};
-use eframe::epaint::FontColorTransferFunction;
 
 /// The accent color where the system tells none: macOS's default blue.
 pub const DEFAULT_ACCENT: Color32 = Color32::from_rgb(0, 122, 255);
@@ -50,7 +50,6 @@ pub fn light(accent: Option<Color32>) -> Visuals {
     v.warn_fg_color = Color32::from_rgb(180, 80, 0);
     v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), false, v.panel_fill);
     v.hyperlink_color = v.selection.stroke.color;
-    v.text_options.color_transfer_function = TEXT_COVERAGE;
     v.text_options.font_hinting = FONT_HINTING;
     v
 }
@@ -72,18 +71,9 @@ pub fn dark(accent: Option<Color32>) -> Visuals {
     v.weak_text_color = Some(Color32::from_gray(155));
     v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), true, v.panel_fill);
     v.hyperlink_color = v.selection.stroke.color;
-    v.text_options.color_transfer_function = TEXT_COVERAGE;
     v.text_options.font_hinting = FONT_HINTING;
     v
 }
-
-/// How glyph coverage turns into opacity, in both themes: `2c − c²`, egui's own for dark
-/// mode (close to a gamma of 0.5). egui draws light mode's dark text with the raw
-/// coverage, which looks thin and gray next to macOS's; with this, SF Pro at 13 points has
-/// within 5 % of the ink Core Text gives it. Steeper curves match Core Text's ink exactly
-/// but lift faint edge pixels so far that strokes look jagged, at 1x especially.
-pub const TEXT_COVERAGE: FontColorTransferFunction =
-    FontColorTransferFunction::TwoCoverageMinusCoverageSq;
 
 /// Whether glyph outlines are hinted to the pixel grid: not on macOS, which doesn't hint
 /// either (its displays have the pixels not to need it); elsewhere as egui does.
