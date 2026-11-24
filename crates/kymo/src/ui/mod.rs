@@ -93,6 +93,12 @@ pub fn hint_text(text: &str) -> RichText {
     RichText::new(text).size(HINT_SIZE)
 }
 
+/// `text` as a window's title: as large as body text, as the system's titles are (egui's
+/// are headings), in the interface's font.
+pub fn window_title(text: &str) -> RichText {
+    RichText::new(text).text_style(eframe::egui::TextStyle::Body)
+}
+
 /// The windows over the recording, which Esc and ⌘W close, the one in front first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Overlay {
@@ -117,6 +123,73 @@ impl Overlay {
     /// The window's id, which also names its layer, so the one in front can be found.
     pub fn id(self) -> eframe::egui::Id {
         eframe::egui::Id::unique(("kymo overlay", self))
+    }
+
+    /// Puts the window in the middle of the main window each time it opens (`open` turns
+    /// true, or it is called again after a frame without), as the system's dialogs are,
+    /// wherever it was dragged to before (egui would keep that place, across runs too).
+    /// Call it before the window is shown.
+    ///
+    /// The place is set in egui's memory, by the window's size, so that the window keeps
+    /// its pivot (left top) and a resizable one grows toward the dragged edge only; set
+    /// from the window's position (`current_pos`) it would be undone, as egui takes a
+    /// window moved by its title bar from memory. A window takes a few frames to grow to
+    /// its content (one opened for the first time is measured in an invisible frame
+    /// first), so it is centered again while its size changes, for a few frames at most.
+    pub fn center_on_open(self, ctx: &eframe::egui::Context, open: bool) {
+        use eframe::egui::{AreaState, LayerId, Order, Vec2};
+        /// Frames after opening in which the window is centered again if its size changed.
+        const SETTLE_FRAMES: u8 = 10;
+        #[derive(Clone, Copy, Default)]
+        struct Centering {
+            was_open: bool,
+            /// The frame it was last called in.
+            frame: u64,
+            frames_left: u8,
+            size: Option<Vec2>,
+        }
+        let key = self.id().with("centering");
+        let mut centering: Centering = ctx.data(|d| d.get_temp(key)).unwrap_or_default();
+        let frame = ctx.cumulative_frame_nr();
+        let was_open = centering.was_open && centering.frame + 1 == frame;
+        if open && !was_open {
+            centering.frames_left = SETTLE_FRAMES;
+            centering.size = None;
+        }
+        centering.was_open = open;
+        centering.frame = frame;
+        if !open {
+            centering.frames_left = 0;
+        }
+        if centering.frames_left > 0 {
+            centering.frames_left -= 1;
+            if let Some(mut state) = AreaState::load(ctx, self.id())
+                && let Some(size) = state.size
+            {
+                if centering.size == Some(size) {
+                    // Settled; dragging is the user's from here.
+                    centering.frames_left = 0;
+                } else {
+                    centering.size = Some(size);
+                    state.set_left_top_pos(ctx.content_rect().center() - size / 2.0);
+                    let layer = LayerId::new(Order::Middle, self.id());
+                    ctx.memory_mut(|m| m.areas_mut().set_state(layer, state));
+                    ctx.request_repaint();
+                }
+            } else {
+                // Not measured yet.
+                ctx.request_repaint();
+            }
+        }
+        ctx.data_mut(|d| d.insert_temp(key, centering));
+    }
+
+    /// Brings the window in front of the others, as choosing an open one again does.
+    pub fn bring_to_front(self, ctx: &eframe::egui::Context) {
+        ctx.move_to_top(eframe::egui::LayerId::new(
+            eframe::egui::Order::Middle,
+            self.id(),
+        ));
     }
 
     /// Which of `open` is in front, from egui's layer order of the last frame; one that

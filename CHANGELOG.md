@@ -5,6 +5,7 @@
 - Raise the interface's contrast in both themes, draw text closer to how macOS does, and color selections in the system's accent color ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).
 - Use the system font by default on macOS and Windows ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).
 - Set the tile cache and GPU memory in Settings from a menu of sizes, and the default window in a field with a stepper ([#9](https://github.com/cbrnr/kymo/pull/9) by [Clemens Brunner](https://github.com/cbrnr)).
+- Open dialogs in the middle of the main window, with smaller titles and shadows on all sides ([#10](https://github.com/cbrnr/kymo/pull/10) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🔧 Fixed
 - Fix the System theme staying dark on macOS after switching between Light and Dark ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).

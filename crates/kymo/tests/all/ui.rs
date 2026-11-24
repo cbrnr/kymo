@@ -666,6 +666,8 @@ fn menu_items_act_and_disabled_ones_dont() {
     choose(&mut harness, "Edit", "Settings");
     assert!(harness.state().settings_open());
     harness.get_by_label("Tile Cache");
+    // Centered, it settles in a few frames as it grows to its content.
+    harness.run_steps(4);
     // Its close button.
     harness.get_by_label("Close window").click();
     harness.run_steps(2);
@@ -8915,4 +8917,158 @@ fn check_for_updates_reports_every_answer() {
         ))
     );
     assert!(!checked);
+}
+
+/// Each dialog opens in the middle of the main window, each time: not where it was dragged
+/// to, nor where it was in a smaller window.
+#[test]
+fn dialogs_open_in_the_middle_of_the_window() {
+    use kymo::ui::Overlay;
+    let file = TempFile::preset("bdf+c-small");
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let rect = |h: &Harness<'_, KymoApp>, overlay: Overlay| {
+        h.ctx.memory(|m| m.area_rect(overlay.id())).unwrap()
+    };
+    let centered = |h: &mut Harness<'_, KymoApp>, overlay: Overlay, case: &str| {
+        // A window takes a few frames to grow to its content.
+        h.run_steps(10);
+        let window = rect(h, overlay);
+        let middle = h.ctx.content_rect().center();
+        // Within egui's rounding to whole pixels.
+        assert!(
+            (window.center() - middle).length() <= 2.0,
+            "{overlay:?} {case}: its middle is at {:?}, the main window's at {middle:?}",
+            window.center()
+        );
+    };
+    let is_open = |h: &Harness<'_, KymoApp>, overlay: Overlay| {
+        let app = h.state();
+        match overlay {
+            Overlay::Settings => app.settings_open(),
+            Overlay::Shortcuts => app.shortcuts_open(),
+            Overlay::About => app.about_open(),
+            Overlay::GoToTime => app.go_to_open(),
+            Overlay::RecordingInfo => app.info_open(),
+            Overlay::ChannelTypes => app.channel_types_open(),
+        }
+    };
+    // Channel Types opens from Settings, over it.
+    let open = |h: &mut Harness<'_, KymoApp>, overlay: Overlay| {
+        let ctx = h.ctx.clone();
+        let action = match overlay {
+            Overlay::Settings | Overlay::ChannelTypes => Action::Settings,
+            Overlay::Shortcuts => Action::Shortcuts,
+            Overlay::About => Action::About,
+            Overlay::GoToTime => Action::GoToTime,
+            Overlay::RecordingInfo => Action::RecordingInfo,
+        };
+        h.state_mut().perform(&ctx, action);
+        h.run_steps(4);
+        if overlay == Overlay::ChannelTypes {
+            h.get_by_role_and_label(egui::accesskit::Role::Button, "Channel Types")
+                .click();
+            h.run_steps(2);
+        }
+        assert!(is_open(h, overlay), "{overlay:?}");
+    };
+    // Esc closes the one in front; Settings is behind Channel Types.
+    let close = |h: &mut Harness<'_, KymoApp>| {
+        while Overlay::ALL.iter().any(|&o| is_open(h, o)) {
+            h.key_press(Key::Escape);
+            h.run_steps(4);
+        }
+    };
+    // By its title bar, clear of the close button; within the screen, which egui keeps
+    // windows in.
+    let drag = |h: &mut Harness<'_, KymoApp>, overlay: Overlay| {
+        let from = rect(h, overlay).left_top() + egui::vec2(30.0, 12.0);
+        let to = from + egui::vec2(-150.0, 40.0);
+        h.hover_at(from);
+        h.step();
+        h.event(egui::Event::PointerButton {
+            pos: from,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        });
+        h.step();
+        for t in [0.5, 1.0] {
+            h.hover_at(from + (to - from) * t);
+            h.step();
+        }
+        h.event(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.step();
+        let moved = rect(h, overlay).left_top() + egui::vec2(30.0, 12.0);
+        assert!(
+            (moved - to).length() <= 2.0,
+            "{overlay:?} wasn't dragged: {:?} to {to:?}, at {moved:?}",
+            from
+        );
+    };
+    for overlay in Overlay::ALL {
+        open(&mut harness, overlay);
+        centered(&mut harness, overlay, "opened");
+        drag(&mut harness, overlay);
+        close(&mut harness);
+        open(&mut harness, overlay);
+        centered(&mut harness, overlay, "opened again after a drag");
+        close(&mut harness);
+    }
+    harness.set_size(SIZE + egui::vec2(400.0, 300.0));
+    harness.run_steps(2);
+    for overlay in Overlay::ALL {
+        open(&mut harness, overlay);
+        centered(&mut harness, overlay, "in a larger window");
+        close(&mut harness);
+    }
+}
+
+/// A dialog's title is as large as its text, as the system's are, not a heading: drawn as
+/// wide as its text at the body's size.
+#[test]
+fn dialog_titles_are_as_large_as_body_text() {
+    let file = TempFile::preset("bdf+c-small");
+    let mut harness = screenshot_window(file.path());
+    ready(&mut harness);
+    let ctx = harness.ctx.clone();
+    harness.state_mut().perform(&ctx, Action::Settings);
+    harness.run_steps(10);
+    let window = harness
+        .ctx
+        .memory(|m| m.area_rect(kymo::ui::Overlay::Settings.id()))
+        .unwrap();
+    let close = harness.get_by_label("Close window").rect();
+    let image = harness.render().unwrap();
+    let luma = |x: f32, y: f32| {
+        let [r, g, b, _] = image.get_pixel(x as u32, y as u32).0;
+        (u32::from(r) + u32::from(g) + u32::from(b)) / 3
+    };
+    // Columns of the title bar, left of the close button, with text in them.
+    let fill = luma(window.left() + 4.0, close.center().y);
+    let (top, bottom) = (close.top() - 4.0, close.bottom() + 4.0);
+    let inked: Vec<f32> = (window.left() as u32 + 4..close.left() as u32 - 4)
+        .map(|x| x as f32)
+        .filter(|&x| (top as u32..bottom as u32).any(|y| luma(x, y as f32).abs_diff(fill) > 60))
+        .collect();
+    let drawn = inked.last().unwrap() - inked.first().unwrap() + 1.0;
+    let width = |style: egui::TextStyle| {
+        let font = style.resolve(&ctx.global_style());
+        ctx.fonts_mut(|f| {
+            f.layout_no_wrap("Settings".into(), font, egui::Color32::WHITE)
+                .size()
+                .x
+        })
+    };
+    let body = width(egui::TextStyle::Body);
+    assert!(
+        (drawn - body).abs() <= 3.0,
+        "the title is {drawn} wide, as body text {body}, as a heading {}",
+        width(egui::TextStyle::Heading)
+    );
 }

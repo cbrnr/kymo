@@ -4,10 +4,10 @@ use eframe::egui::{self, Ui};
 
 use crate::disk_cache::DiskCache;
 use crate::settings::{DEFAULT_WINDOW_S, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme};
-use crate::ui::Overlay;
 use crate::ui::fonts::SYSTEM_FONT_NAME;
 use crate::ui::stepper::stepper;
 use crate::ui::types::CHANNEL_TYPES;
+use crate::ui::{Overlay, window_title};
 
 /// What the Channel Types row's button is labeled.
 pub const EDIT_TYPES: &str = "Edit\u{2026}";
@@ -29,7 +29,8 @@ pub fn settings_window(
 ) -> bool {
     let before = settings.clone();
     let defaults = Settings::default();
-    egui::Window::new("Settings")
+    Overlay::Settings.center_on_open(ctx, *open);
+    egui::Window::new(window_title("Settings"))
         .id(Overlay::Settings.id())
         .open(open)
         .collapsible(false)

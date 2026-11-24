@@ -10,10 +10,10 @@ use eframe::egui::{
 use kymo_core::{ChannelKind, KNOWN_KINDS};
 
 use crate::types::{TypeSet, TypeSettings};
-use crate::ui::Overlay;
 use crate::ui::color::{Choice, picker, swatch, swatch_button};
 use crate::ui::menus::check_item;
 use crate::ui::palette::type_color;
+use crate::ui::{Overlay, window_title};
 
 /// The window's title, and the button that opens it.
 pub const CHANNEL_TYPES: &str = "Channel Types";
@@ -447,7 +447,8 @@ pub fn channel_types_window(
     let before = types.clone();
     let listed = listed_types(types, recording);
     let columns = Columns::of(ctx, &listed);
-    egui::Window::new(CHANNEL_TYPES)
+    Overlay::ChannelTypes.center_on_open(ctx, *open);
+    egui::Window::new(window_title(CHANNEL_TYPES))
         .id(Overlay::ChannelTypes.id())
         .open(open)
         .collapsible(false)
