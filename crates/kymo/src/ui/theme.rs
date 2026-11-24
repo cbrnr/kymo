@@ -50,7 +50,7 @@ pub fn light(accent: Option<Color32>) -> Visuals {
     v.warn_fg_color = Color32::from_rgb(180, 80, 0);
     v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), false, v.panel_fill);
     v.hyperlink_color = v.selection.stroke.color;
-    v.text_options.color_transfer_function = LIGHT_TEXT;
+    v.text_options.color_transfer_function = TEXT_COVERAGE;
     v.text_options.font_hinting = FONT_HINTING;
     v
 }
@@ -72,20 +72,18 @@ pub fn dark(accent: Option<Color32>) -> Visuals {
     v.weak_text_color = Some(Color32::from_gray(155));
     v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), true, v.panel_fill);
     v.hyperlink_color = v.selection.stroke.color;
-    v.text_options.color_transfer_function = DARK_TEXT;
+    v.text_options.color_transfer_function = TEXT_COVERAGE;
     v.text_options.font_hinting = FONT_HINTING;
     v
 }
 
-/// How light mode turns a glyph's coverage into opacity: a gamma below 1 thickens the
-/// strokes, as macOS's font smoothing does; egui draws dark text with the raw coverage,
-/// which looks thin and gray. 0.4 gives SF Pro at 13 points as much ink as Core Text gives
-/// it on the same background.
-pub const LIGHT_TEXT: FontColorTransferFunction = FontColorTransferFunction::Gamma(0.4);
-
-/// [`LIGHT_TEXT`] for dark mode, which needs more (egui's own is close to a gamma of 0.5):
-/// 0.3 comes closest to Core Text there.
-pub const DARK_TEXT: FontColorTransferFunction = FontColorTransferFunction::Gamma(0.3);
+/// How glyph coverage turns into opacity, in both themes: `2c − c²`, egui's own for dark
+/// mode (close to a gamma of 0.5). egui draws light mode's dark text with the raw
+/// coverage, which looks thin and gray next to macOS's; with this, SF Pro at 13 points has
+/// within 5 % of the ink Core Text gives it. Steeper curves match Core Text's ink exactly
+/// but lift faint edge pixels so far that strokes look jagged, at 1x especially.
+pub const TEXT_COVERAGE: FontColorTransferFunction =
+    FontColorTransferFunction::TwoCoverageMinusCoverageSq;
 
 /// Whether glyph outlines are hinted to the pixel grid: not on macOS, which doesn't hint
 /// either (its displays have the pixels not to need it); elsewhere as egui does.
