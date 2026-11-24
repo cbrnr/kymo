@@ -3,7 +3,9 @@
 //!
 //! The app mode: on Windows read from the registry (Settings → Personalization → Colors →
 //! `AppsUseLightTheme`), on Linux from the desktop portal's `color-scheme` setting; both
-//! watched for changes. On macOS winit tells it, and the mode stays unknown.
+//! watched for changes. On macOS winit tells it, and the mode stays unknown; with the
+//! native menus, the app reads AppKit's instead ([`appkit_dark`]), as winit's report of it
+//! can be wrong then.
 //!
 //! Windows: winit and muda ask uxtheme instead (`ShouldAppsUseDarkMode`), which is
 //! undocumented and, while Kymo forces a theme on its menus (`native_menu::set_app_mode`),
@@ -200,6 +202,34 @@ pub fn portal_accent(rgb: [f64; 3]) -> Option<Color32> {
     }
     let [r, g, b] = rgb.map(|c| (c * 255.0).round() as u8);
     Some(Color32::from_rgb(r, g, b))
+}
+
+/// Whether the system's appearance is dark, as AppKit tells it: the application's effective
+/// appearance, while Kymo forces none on it (under System); `None` while it does, or off
+/// the main thread. A cheap read, of a property AppKit keeps.
+///
+/// winit's report, which egui takes for the system's theme, is the window's effective
+/// appearance, and that follows the application's: Kymo forcing a theme on the menus (the
+/// application's appearance) while the window's own is unset, as egui sets it only after
+/// the frame, is reported as the system's change; and changes are then ignored while the
+/// window's is set. System, Dark, Light and System again left egui dark on a light system.
+#[cfg(target_os = "macos")]
+pub fn appkit_dark() -> Option<bool> {
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::{MainThreadMarker, NSArray, ns_string};
+    let app = NSApplication::sharedApplication(MainThreadMarker::new()?);
+    if app.appearance().is_some() {
+        return None;
+    }
+    // The values of `NSAppearanceNameAqua` and `NSAppearanceNameDarkAqua`.
+    let (light, dark) = (
+        ns_string!("NSAppearanceNameAqua"),
+        ns_string!("NSAppearanceNameDarkAqua"),
+    );
+    let best = app
+        .effectiveAppearance()
+        .bestMatchFromAppearancesWithNames(&NSArray::from_slice(&[light, dark]))?;
+    Some(&*best == dark)
 }
 
 /// The accent color AppKit reports, in sRGB; `None` if it has none in that space.

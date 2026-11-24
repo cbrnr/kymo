@@ -506,8 +506,11 @@ impl KymoApp {
     /// Applies the theme setting to egui, the title bar and the native menus, when it, the
     /// system's theme or the app mode changed. Again on a change of the system's: Windows
     /// puts the title bar back to the system's mode then, whatever the window was set to.
-    /// Following an app mode, System is applied as Light or Dark. The light and dark looks
-    /// are made again when the accent color changed.
+    /// Following an app mode, System is applied as Light or Dark. On macOS with the native
+    /// menus the system's appearance comes from AppKit instead, and is applied to egui
+    /// only: the window and the menus follow the system themselves (and so winit keeps
+    /// waking Kymo when it changes). The light and dark looks are made again when the
+    /// accent color changed.
     fn apply_theme(&mut self, ctx: &egui::Context) {
         let accent = self.app_mode.accent();
         if self.accent_applied != Some(accent) {
@@ -515,7 +518,12 @@ impl KymoApp {
             theme::apply(ctx, accent);
         }
         let theme = self.options.settings.theme;
-        let app_dark = self.app_mode.dark();
+        let appkit = cfg!(target_os = "macos") && self.native_menu.is_some();
+        let app_dark = if appkit {
+            appkit_dark(theme)
+        } else {
+            self.app_mode.dark()
+        };
         let now = (theme, ctx.system_theme(), app_dark);
         if self.theme_applied == Some(now) {
             return;
@@ -526,10 +534,22 @@ impl KymoApp {
             (Theme::System, Some(false)) => Theme::Light,
             (theme, _) => theme,
         };
+        let window = if appkit { theme } else { shown };
         ctx.set_theme(shown.preference());
-        ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(shown.window()));
+        ctx.send_viewport_cmd(egui::ViewportCommand::SetTheme(window.window()));
         if let Some(menu) = &self.native_menu {
-            menu.set_theme(shown);
+            menu.set_theme(window);
+        }
+        // Back to System from a forced theme, AppKit tells the system's appearance now
+        // that the menus no longer force one on the application.
+        if appkit
+            && theme == Theme::System
+            && app_dark.is_none()
+            && let Some(dark) = appkit_dark(theme)
+        {
+            let shown = if dark { Theme::Dark } else { Theme::Light };
+            ctx.set_theme(shown.preference());
+            self.theme_applied = Some((theme, ctx.system_theme(), Some(dark)));
         }
     }
 
@@ -1789,4 +1809,17 @@ fn run_window(
     event_loop
         .run_app(&mut app)
         .map_err(|e| anyhow::anyhow!("cannot open a window: {e}"))
+}
+
+/// Under System, whether the system's appearance is dark as AppKit tells it; `None` under
+/// a forced theme, while the menus still force one, and off macOS. egui's system theme is
+/// winit's report, which takes a theme forced on the menus for the system's and keeps it
+/// after (see [`crate::app_mode::appkit_dark`]).
+fn appkit_dark(theme: Theme) -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    if theme == Theme::System {
+        return crate::app_mode::appkit_dark();
+    }
+    let _ = theme;
+    None
 }
