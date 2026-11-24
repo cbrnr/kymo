@@ -50,6 +50,8 @@ Some tests need real recordings. These are kept outside the repository: point `K
 
 ## Before you commit
 
+Every change goes through a pull request against `main`, the maintainer's own included; nothing is pushed to `main` directly. Work on a branch, open a pull request, and merge it once CI passes.
+
 CI runs these on Linux, macOS and Windows, and all three must be clean:
 
 ```
@@ -81,15 +83,15 @@ Releases are made from `main` by pushing a tag; `.github/workflows/release.yml` 
 
 1. Set the version in the workspace's `Cargo.toml` (`version = "X.Y.Z"`; a pre-release such as `X.Y.Z-rc.1` becomes a GitHub pre-release) and run `cargo build` to update `Cargo.lock`.
 2. In `CHANGELOG.md`, rename the `[UNRELEASED]` heading to `[X.Y.Z]` with today's date.
-3. Commit both, and tag and push the commit:
+3. Commit both on a branch and open a pull request. Once it is merged, tag the merge commit on `main` and push the tag:
 
    ```sh
-   git commit -am "Release X.Y.Z"
+   git switch main && git pull
    git tag vX.Y.Z
-   git push origin main vX.Y.Z
+   git push origin vX.Y.Z
    ```
 
    The workflow checks that the tag matches the version and that the changelog has an entry for it, runs the tests, builds the macOS disk image (signed and notarized), the Windows installer and the Linux archives, and creates a draft release with them and the changelog's entry as its notes (GitHub shows each asset's SHA-256).
 4. Review the draft on the [Releases](https://github.com/cbrnr/kymo/releases) page and publish it.
 5. The AUR package follows: [aur-pkgbuild-updater](https://github.com/cbrnr/aur-pkgbuild-updater) opens a pull request with the new version within a few hours; merge it to push the update to the AUR.
-6. Add a new `## [UNRELEASED]` heading at the top of `CHANGELOG.md` for the next changes.
+6. Add a new `## [UNRELEASED]` heading at the top of `CHANGELOG.md` for the next changes, in a pull request of its own or with the next change.
