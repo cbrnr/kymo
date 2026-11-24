@@ -171,6 +171,12 @@ pub struct KymoApp {
     app_mode: AppMode,
     /// The theme setting, the system's theme and the app mode it was last applied for.
     theme_applied: Option<(Theme, Option<egui::Theme>, Option<bool>)>,
+    /// The accent color the looks were last made with (see [`theme::apply`]); `None` as
+    /// the app starts, so the first frame makes them.
+    accent_applied: Option<Option<egui::Color32>>,
+    /// Whether the window had focus in the last frame: gaining it reads the accent color
+    /// again (see [`AppMode::refresh_accent`]).
+    focused: bool,
     /// The font setting the fonts were last set for, and whether that was during the last
     /// frame.
     fonts_applied: bool,
@@ -227,7 +233,6 @@ impl KymoApp {
         });
         let system_font = options.settings.system_font;
         apply_fonts(ctx, system_font);
-        theme::apply(ctx, None);
         gpu.set_budget(options.settings.gpu_memory_bytes());
         let disk_cache = DiskCache::new(options.sidecar_dir.clone());
         let mut app = KymoApp {
@@ -259,6 +264,8 @@ impl KymoApp {
             closing: false,
             app_mode: AppMode::new(),
             theme_applied: None,
+            accent_applied: None,
+            focused: false,
             fonts_applied: system_font,
             fonts_set: false,
             opened: None,
@@ -342,8 +349,10 @@ impl KymoApp {
     }
 
     /// Has System follow `mode` (the system's app mode, read on Windows and Linux) instead
-    /// of the system's theme as winit reports it, wherever the mode is known.
+    /// of the system's theme as winit reports it, wherever the mode is known, and the
+    /// selection the system's accent color.
     pub fn follow_app_mode(&mut self, mode: AppMode) {
+        mode.refresh_accent();
         self.app_mode = mode;
     }
 
@@ -497,8 +506,14 @@ impl KymoApp {
     /// Applies the theme setting to egui, the title bar and the native menus, when it, the
     /// system's theme or the app mode changed. Again on a change of the system's: Windows
     /// puts the title bar back to the system's mode then, whatever the window was set to.
-    /// Following an app mode, System is applied as Light or Dark.
+    /// Following an app mode, System is applied as Light or Dark. The light and dark looks
+    /// are made again when the accent color changed.
     fn apply_theme(&mut self, ctx: &egui::Context) {
+        let accent = self.app_mode.accent();
+        if self.accent_applied != Some(accent) {
+            self.accent_applied = Some(accent);
+            theme::apply(ctx, accent);
+        }
         let theme = self.options.settings.theme;
         let app_dark = self.app_mode.dark();
         let now = (theme, ctx.system_theme(), app_dark);
@@ -652,6 +667,11 @@ impl KymoApp {
                 viewer.forget_text_widths();
             }
         }
+        let focused = ctx.input(|i| i.viewport().focused).unwrap_or(false);
+        if focused && !self.focused {
+            self.app_mode.refresh_accent();
+        }
+        self.focused = focused;
         self.apply_theme(&ctx);
         self.poll_loading();
         self.poll_update();

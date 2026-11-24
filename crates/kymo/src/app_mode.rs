@@ -1,7 +1,9 @@
-//! The system's app mode, which the System theme follows where winit can't tell it: on
-//! Windows read from the registry (Settings → Personalization → Colors → `AppsUseLightTheme`),
-//! on Linux from the desktop portal's `color-scheme` setting; both watched for changes. On
-//! macOS winit tells it, and the mode stays unknown.
+//! The system's app mode, which the System theme follows where winit can't tell it, and its
+//! accent color, which the selection takes (see [`crate::ui::theme`]).
+//!
+//! The app mode: on Windows read from the registry (Settings → Personalization → Colors →
+//! `AppsUseLightTheme`), on Linux from the desktop portal's `color-scheme` setting; both
+//! watched for changes. On macOS winit tells it, and the mode stays unknown.
 //!
 //! Windows: winit and muda ask uxtheme instead (`ShouldAppsUseDarkMode`), which is
 //! undocumented and, while Kymo forces a theme on its menus (`native_menu::set_app_mode`),
@@ -9,17 +11,31 @@
 //! doesn't read the system's theme at all (X11 says nothing, Wayland only what the app set),
 //! so System was always dark. With the mode read here, System becomes Light or Dark before
 //! anything is themed, and every part gets the same.
+//!
+//! The accent color: on Linux the portal's `accent-color`, followed with the color scheme;
+//! on macOS `NSColor.controlAccentColor` and on Windows the registry's `AccentColorMenu`
+//! (Settings → Personalization → Colors → Accent color), both read again whenever the
+//! window gains focus ([`AppMode::refresh_accent`]), as changing them takes the system's
+//! settings in front. Unknown where the system has none (GNOME before 47, for one).
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
+
+use eframe::egui::Color32;
 
 const UNKNOWN: u8 = 0;
 const LIGHT: u8 = 1;
 const DARK: u8 = 2;
 
-/// The app mode, shared with the thread that watches it.
+/// No accent color, in [`AppMode`]'s; a known one has the high byte set.
+const NO_ACCENT: u32 = 0;
+
+/// The app mode and the accent color, shared with the thread that watches them.
 #[derive(Clone, Debug, Default)]
-pub struct AppMode(Arc<AtomicU8>);
+pub struct AppMode {
+    mode: Arc<AtomicU8>,
+    accent: Arc<AtomicU32>,
+}
 
 impl AppMode {
     /// Not known; [`set`](Self::set) tells it.
@@ -29,7 +45,7 @@ impl AppMode {
 
     /// Whether apps should be dark; `None` if unknown.
     pub fn dark(&self) -> Option<bool> {
-        match self.0.load(Ordering::Relaxed) {
+        match self.mode.load(Ordering::Relaxed) {
             LIGHT => Some(false),
             DARK => Some(true),
             _ => None,
@@ -42,7 +58,33 @@ impl AppMode {
             Some(true) => DARK,
             None => UNKNOWN,
         };
-        self.0.store(value, Ordering::Relaxed);
+        self.mode.store(value, Ordering::Relaxed);
+    }
+
+    /// The system's accent color; `None` if unknown.
+    pub fn accent(&self) -> Option<Color32> {
+        match self.accent.load(Ordering::Relaxed) {
+            NO_ACCENT => None,
+            packed => {
+                let [_, r, g, b] = packed.to_be_bytes();
+                Some(Color32::from_rgb(r, g, b))
+            }
+        }
+    }
+
+    pub fn set_accent(&self, accent: Option<Color32>) {
+        let packed = accent.map_or(NO_ACCENT, |c| u32::from_be_bytes([1, c.r(), c.g(), c.b()]));
+        self.accent.store(packed, Ordering::Relaxed);
+    }
+
+    /// Reads the accent color again where no thread follows it: macOS and Windows. Kymo
+    /// calls it at the start and whenever the window gains focus. Both reads are quick and
+    /// stay in the process (the registry's user hive is in memory).
+    pub fn refresh_accent(&self) {
+        #[cfg(target_os = "macos")]
+        self.set_accent(appkit_accent());
+        #[cfg(windows)]
+        self.set_accent(registry::accent());
     }
 
     /// The app mode as the registry has it, kept up to date by a thread that waits for the
@@ -82,8 +124,8 @@ impl AppMode {
         mode
     }
 
-    /// The color scheme the desktop portal reports, kept up to date by a thread that
-    /// follows its changes and then wakes `ctx`. Unknown without a session bus or portal.
+    /// The color scheme and accent color the desktop portal reports, kept up to date by a
+    /// thread that follows their changes and then wakes `ctx`. Unknown without a session bus or portal.
     ///
     /// Waits briefly for the first answer, so that the first frame has the right theme.
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -113,11 +155,21 @@ impl AppMode {
         let _ = std::thread::Builder::new()
             .name("kymo app mode".into())
             .spawn(move || {
-                portal::follow(&connection, |dark| {
-                    let changed = dark != shared.dark();
-                    shared.set(dark);
-                    // The receiver is gone after the first answer, or the wait for it.
-                    let _ = first_tx.send(());
+                portal::follow(&connection, |setting| {
+                    let changed = match setting {
+                        portal::Setting::Dark(dark) => {
+                            let changed = dark != shared.dark();
+                            shared.set(dark);
+                            // The receiver is gone after the first answer, or the wait.
+                            let _ = first_tx.send(());
+                            changed
+                        }
+                        portal::Setting::Accent(accent) => {
+                            let changed = accent != shared.accent();
+                            shared.set_accent(accent);
+                            changed
+                        }
+                    };
                     if changed {
                         ctx.request_repaint();
                     }
@@ -140,9 +192,34 @@ pub fn color_scheme_dark(value: u32) -> Option<bool> {
     }
 }
 
+/// The color an `accent-color` value of the desktop portal (`org.freedesktop.appearance`)
+/// gives, as red, green and blue from 0 to 1; any outside that range means none is set.
+pub fn portal_accent(rgb: [f64; 3]) -> Option<Color32> {
+    if !rgb.iter().all(|c| (0.0..=1.0).contains(c)) {
+        return None;
+    }
+    let [r, g, b] = rgb.map(|c| (c * 255.0).round() as u8);
+    Some(Color32::from_rgb(r, g, b))
+}
+
+/// The accent color AppKit reports, in sRGB; `None` if it has none in that space.
+#[cfg(target_os = "macos")]
+fn appkit_accent() -> Option<Color32> {
+    use objc2_app_kit::{NSColor, NSColorSpace};
+    let color =
+        NSColor::controlAccentColor().colorUsingColorSpace(&NSColorSpace::sRGBColorSpace())?;
+    let channel = |c: f64| (c.clamp(0.0, 1.0) * 255.0).round() as u8;
+    Some(Color32::from_rgb(
+        channel(color.redComponent()),
+        channel(color.greenComponent()),
+        channel(color.blueComponent()),
+    ))
+}
+
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal {
-    use super::color_scheme_dark;
+    use super::{color_scheme_dark, portal_accent};
+    use eframe::egui::Color32;
     use zbus::blocking::{Connection, Proxy};
     use zbus::zvariant::{OwnedValue, Value};
 
@@ -151,6 +228,13 @@ mod portal {
     const INTERFACE: &str = "org.freedesktop.portal.Settings";
     const NAMESPACE: &str = "org.freedesktop.appearance";
     const KEY: &str = "color-scheme";
+    const ACCENT: &str = "accent-color";
+
+    /// A setting the portal reported: the app mode, or the accent color.
+    pub enum Setting {
+        Dark(Option<bool>),
+        Accent(Option<Color32>),
+    }
 
     /// The number in a value, which `Read` wraps in a second variant (as the portal's
     /// documentation says it does since version 1, though old ones sent it bare).
@@ -161,29 +245,57 @@ mod portal {
         }
     }
 
-    /// Calls `publish` with the current mode, then again at each change, until the
-    /// connection ends. Subscribed before the first read, so no change slips between.
-    pub fn follow(connection: &Connection, publish: impl Fn(Option<bool>)) {
+    /// The color in an `accent-color` value, three doubles, wrapped like [`number`]'s.
+    fn color(value: &Value<'_>) -> Option<Color32> {
+        match value {
+            Value::Value(inner) => color(inner),
+            Value::Structure(fields) => match fields.fields() {
+                [r, g, b] => portal_accent([
+                    f64::try_from(r).ok()?,
+                    f64::try_from(g).ok()?,
+                    f64::try_from(b).ok()?,
+                ]),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// Calls `publish` with the current accent color and mode, then again at each change,
+    /// until the connection ends. Subscribed before the first reads, so no change slips
+    /// between. The mode comes second: its first answer ends the wait at the start.
+    pub fn follow(connection: &Connection, publish: impl Fn(Setting)) {
         let Ok(proxy) = Proxy::new(connection, DESTINATION, PATH, INTERFACE) else {
             return;
         };
         let Ok(changes) = proxy.receive_signal("SettingChanged") else {
             return;
         };
-        let current = proxy
-            .call::<_, _, OwnedValue>("Read", &(NAMESPACE, KEY))
-            .ok()
+        let read = |key: &str| {
+            proxy
+                .call::<_, _, OwnedValue>("Read", &(NAMESPACE, key))
+                .ok()
+        };
+        publish(Setting::Accent(
+            read(ACCENT).and_then(|value| color(&value)),
+        ));
+        let dark = read(KEY)
             .and_then(|value| number(&value))
             .and_then(color_scheme_dark);
-        publish(current);
+        publish(Setting::Dark(dark));
         for message in changes {
             let body = message.body();
             let Ok((namespace, key, value)) = body.deserialize::<(String, String, OwnedValue)>()
             else {
                 continue;
             };
-            if namespace == NAMESPACE && key == KEY {
-                publish(number(&value).and_then(color_scheme_dark));
+            if namespace != NAMESPACE {
+                continue;
+            }
+            match key.as_str() {
+                KEY => publish(Setting::Dark(number(&value).and_then(color_scheme_dark))),
+                ACCENT => publish(Setting::Accent(color(&value))),
+                _ => {}
             }
         }
     }
@@ -251,6 +363,28 @@ mod registry {
             )
         };
         (status == ERROR_SUCCESS).then_some(value == 0)
+    }
+
+    /// The accent color: `AccentColorMenu` under Explorer's `Accent` key, as 0xAABBGGRR.
+    /// `None` without the value.
+    pub fn accent() -> Option<eframe::egui::Color32> {
+        let mut value: u32 = 0;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        // SAFETY: static strings; the call writes at most `size` bytes into `value`.
+        #[allow(unsafe_code)]
+        let status = unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                windows_sys::w!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent"),
+                windows_sys::w!("AccentColorMenu"),
+                RRF_RT_REG_DWORD,
+                std::ptr::null_mut(),
+                (&raw mut value).cast(),
+                &mut size,
+            )
+        };
+        let [r, g, b, _] = value.to_le_bytes();
+        (status == ERROR_SUCCESS).then(|| eframe::egui::Color32::from_rgb(r, g, b))
     }
 
     /// Notices of changes to a key's values, signaled on an event: asked for before the

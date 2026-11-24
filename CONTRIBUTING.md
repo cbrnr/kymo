@@ -32,7 +32,7 @@ The viewer draws with DX12 or Vulkan, so a current graphics driver is enough.
    - with your package manager: `sudo pacman -S rustup` on Arch, `sudo apt install rustup` on Debian 13 and Ubuntu 24.04 or newer, `sudo dnf install rustup` on Fedora, followed there by `rustup-init`
 3. Install the stable toolchain and make it the default: `rustup default stable`. The script and Fedora's `rustup-init` already do this, so after them the command only confirms it.
 
-The build doesn't need any other development packages: X11, Wayland and fontconfig are loaded at run time, and file dialogs and the theme go through the desktop portal.
+The build doesn't need any other development packages: X11, Wayland and fontconfig are loaded at run time, and file dialogs, the theme and the accent color go through the desktop portal.
 
 ## Build and test
 
