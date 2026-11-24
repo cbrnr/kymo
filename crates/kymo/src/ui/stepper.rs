@@ -168,7 +168,7 @@ pub fn parse_number(text: &str) -> Option<f64> {
 
 /// The stepper's arrows, as tall as the field: a rounded body split into an upper and a
 /// lower half, each with a chevron, darker while pressed. A press steps once; held, it
-/// repeats after [`REPEAT_DELAY`]. Returns the steps: positive up, negative down.
+/// repeats after [`REPEAT_DELAY`] while the pointer stays on it. Returns the steps: positive up, negative down.
 fn arrows(ui: &mut Ui, id: Id) -> f64 {
     let height = ui.spacing().interact_size.y;
     let (rect, _) = ui.allocate_exact_size(vec2(STEPPER_WIDTH, height), Sense::hover());
@@ -190,7 +190,9 @@ fn arrows(ui: &mut Ui, id: Id) -> f64 {
     let mut steps = 0.0;
     for (half, direction, name) in halves {
         let half_id = id.with(name);
-        let response = ui.interact(half, half_id, Sense::click());
+        // Dragging too: egui drops a press that only clicks once it is held longer than a
+        // click (0.8 s).
+        let response = ui.interact(half, half_id, Sense::click_and_drag());
         response
             .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
         let done = ui.data(|d| d.get_temp::<i64>(half_id));
@@ -204,9 +206,13 @@ fn arrows(ui: &mut Ui, id: Id) -> f64 {
             } else {
                 2 + ((held - REPEAT_DELAY) / REPEAT_INTERVAL) as i64
             };
+            // Off the arrow, the steps due pass without stepping, as on macOS.
+            let over = ui.rect_contains_pointer(half);
             let done = done.unwrap_or(0);
             if due > done {
-                steps += direction * (due - done) as f64;
+                if over {
+                    steps += direction * (due - done) as f64;
+                }
                 ui.data_mut(|d| d.insert_temp(half_id, due));
             }
             ui.ctx().request_repaint();

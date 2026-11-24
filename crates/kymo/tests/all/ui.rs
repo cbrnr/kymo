@@ -3304,6 +3304,30 @@ fn default_window_steps_and_takes_typed_values() {
     });
     harness.run_steps(2);
     assert_eq!(seconds(&harness), 21.0);
+
+    // Held, it repeats, for as long as it is held (egui's frames here are a quarter second
+    // apart) and while the pointer is on it.
+    let press = |harness: &mut Harness<'_, KymoApp>, pos, pressed| {
+        harness.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    };
+    press(&mut harness, up, true);
+    harness.run_steps(12);
+    let held = seconds(&harness);
+    assert!(held > 21.0 + 20.0, "{held}");
+    harness.hover_at(up + egui::vec2(60.0, 0.0));
+    harness.run_steps(4);
+    let off = seconds(&harness);
+    harness.run_steps(4);
+    assert_eq!(seconds(&harness), off);
+    press(&mut harness, up + egui::vec2(60.0, 0.0), false);
+    harness.run_steps(2);
+    assert_eq!(seconds(&harness), off);
+    set_field(&mut harness, "Default Window", 21.0);
     harness
         .get_by_role_and_label(egui::accesskit::Role::Button, "Down")
         .click();
