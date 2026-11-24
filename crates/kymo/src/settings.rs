@@ -12,10 +12,11 @@ use crate::render::DEFAULT_GPU_BUDGET;
 use crate::types::{TypeSet, TypeSettings};
 use crate::view::DEFAULT_SPAN;
 
-/// Megabytes the tile cache may take.
-pub const TILE_CACHE_MB: RangeInclusive<u32> = 64..=65_536;
-/// Megabytes of GPU memory the trace renderer may take for tiles.
-pub const GPU_MEMORY_MB: RangeInclusive<u32> = 64..=16_384;
+/// The megabytes the tile cache may take, as Settings offers them.
+pub const TILE_CACHE_MB: [u32; 6] = [128, 256, 512, 1024, 2048, 4096];
+/// The megabytes of GPU memory the trace renderer may take for tiles, as Settings offers
+/// them.
+pub const GPU_MEMORY_MB: [u32; 5] = [128, 256, 512, 1024, 2048];
 /// Seconds the default window may span.
 pub const DEFAULT_WINDOW_S: RangeInclusive<f64> = 1.0..=3600.0;
 
@@ -211,17 +212,17 @@ impl Settings {
         storage.set_string(CHECK_UPDATES_KEY, self.check_updates.to_string());
     }
 
-    /// Every setting within its range; NaN seconds become the default.
+    /// Every setting within its range, each budget the nearest offered one; NaN seconds
+    /// become the default.
     pub fn clamped(self) -> Settings {
-        let clamp = |v: u32, range: RangeInclusive<u32>| v.clamp(*range.start(), *range.end());
         let seconds = if self.default_window_s.is_nan() {
             DEFAULT_SPAN
         } else {
             self.default_window_s
         };
         Settings {
-            tile_cache_mb: clamp(self.tile_cache_mb, TILE_CACHE_MB),
-            gpu_memory_mb: clamp(self.gpu_memory_mb, GPU_MEMORY_MB),
+            tile_cache_mb: nearest(self.tile_cache_mb, &TILE_CACHE_MB),
+            gpu_memory_mb: nearest(self.gpu_memory_mb, &GPU_MEMORY_MB),
             default_window_s: seconds.clamp(*DEFAULT_WINDOW_S.start(), *DEFAULT_WINDOW_S.end()),
             antialias: self.antialias,
             scale_bars: self.scale_bars,
@@ -241,6 +242,17 @@ impl Settings {
     pub fn gpu_memory_bytes(&self) -> usize {
         (self.gpu_memory_mb as usize) << 20
     }
+}
+
+/// The one of `offered` nearest `mb` by ratio (300 MB is nearer 256 than 512), the smaller
+/// of two as near.
+pub fn nearest(mb: u32, offered: &[u32]) -> u32 {
+    let ratio = |o: u32| (f64::from(mb.max(1)) / f64::from(o)).log2().abs();
+    offered
+        .iter()
+        .copied()
+        .min_by(|a, b| ratio(*a).total_cmp(&ratio(*b)))
+        .unwrap_or(mb)
 }
 
 /// The settings per channel type as kept: a line per type, its color (`#rrggbb`), whether DC

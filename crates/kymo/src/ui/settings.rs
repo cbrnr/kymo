@@ -1,11 +1,12 @@
 //! The Settings window.
 
-use eframe::egui::{self, DragValue, Ui};
+use eframe::egui::{self, Ui};
 
 use crate::disk_cache::DiskCache;
 use crate::settings::{DEFAULT_WINDOW_S, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme};
 use crate::ui::Overlay;
 use crate::ui::fonts::SYSTEM_FONT_NAME;
+use crate::ui::stepper::stepper;
 use crate::ui::types::CHANNEL_TYPES;
 
 /// What the Channel Types row's button is labeled.
@@ -27,6 +28,7 @@ pub fn settings_window(
     clear_cache: &mut bool,
 ) -> bool {
     let before = settings.clone();
+    let defaults = Settings::default();
     egui::Window::new("Settings")
         .id(Overlay::Settings.id())
         .open(open)
@@ -72,37 +74,37 @@ pub fn settings_window(
                     }
                     ui.end_row();
                     hint(ui, "Color, DC removal, and scaling of each channel type.");
-                    row(
+                    let label = ui.label("Default Window");
+                    stepper(
                         ui,
+                        &mut settings.default_window_s,
+                        DEFAULT_WINDOW_S,
+                        1.0,
+                        "s",
                         "Default Window",
-                        "Seconds shown when a recording opens.",
-                        DragValue::new(&mut settings.default_window_s)
-                            .range(DEFAULT_WINDOW_S)
-                            .speed(0.5)
-                            .max_decimals(3)
-                            .suffix(" s"),
-                    );
+                    )
+                    .labelled_by(label.id);
+                    ui.end_row();
+                    hint(ui, "Seconds shown when a recording opens.");
                     ui.label("Scale");
                     ui.checkbox(&mut settings.auto_scale_on_open, "Automatic on Opening");
                     ui.end_row();
                     hint(ui, "Fit the amplitudes to the first window of a recording.");
-                    row(
+                    budget_row(
                         ui,
                         "Tile Cache",
                         "Memory for recently viewed data.",
-                        DragValue::new(&mut settings.tile_cache_mb)
-                            .range(TILE_CACHE_MB)
-                            .speed(8.0)
-                            .suffix(" MB"),
+                        &mut settings.tile_cache_mb,
+                        &TILE_CACHE_MB,
+                        defaults.tile_cache_mb,
                     );
-                    row(
+                    budget_row(
                         ui,
                         "GPU Memory",
                         "Graphics memory for recently viewed data.",
-                        DragValue::new(&mut settings.gpu_memory_mb)
-                            .range(GPU_MEMORY_MB)
-                            .speed(8.0)
-                            .suffix(" MB"),
+                        &mut settings.gpu_memory_mb,
+                        &GPU_MEMORY_MB,
+                        defaults.gpu_memory_mb,
                     );
                     if cache.exists() {
                         let label = ui.label("Disk Cache");
@@ -184,12 +186,37 @@ fn content_width(ctx: &egui::Context) -> f32 {
 /// font) on one line, with room for wider fonts.
 const VALUES_WIDTH: f32 = 360.0;
 
-/// A label, its value, and a hint below in the value's column.
-fn row(ui: &mut Ui, label: &str, hint: &str, value: DragValue<'_>) {
+/// A label, a menu of the `offered` budgets for `mb` (`default` marked as such), and a hint
+/// below in the menu's column.
+fn budget_row(ui: &mut Ui, label: &str, hint: &str, mb: &mut u32, offered: &[u32], default: u32) {
     let label = ui.label(label);
-    ui.add(value).labelled_by(label.id);
+    egui::ComboBox::from_id_salt(label.id)
+        .selected_text(megabytes_text(*mb))
+        .show_ui(ui, |ui| {
+            for &o in offered {
+                let text = if o == default {
+                    format!("{} (Default)", megabytes_text(o))
+                } else {
+                    megabytes_text(o)
+                };
+                ui.selectable_value(mb, o, text);
+            }
+        })
+        .response
+        .labelled_by(label.id);
     ui.end_row();
     self::hint(ui, hint);
+}
+
+/// A budget as the menus show it: in MB below a GB, else in GB.
+pub fn megabytes_text(mb: u32) -> String {
+    if mb >= 1024 && mb.is_multiple_of(1024) {
+        format!("{} GB", mb / 1024)
+    } else if mb >= 1024 {
+        format!("{:.1} GB", f64::from(mb) / 1024.0)
+    } else {
+        format!("{mb} MB")
+    }
 }
 
 /// A hint below a row, in the value's column.

@@ -5,9 +5,10 @@ use std::collections::HashMap;
 use eframe::Storage;
 use eframe::egui::Color32;
 use kymo::annotations::AnnotationColors;
-use kymo::settings::{DEFAULT_WINDOW_S, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme};
+use kymo::settings::{DEFAULT_WINDOW_S, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme, nearest};
 use kymo::settings::{load_annotation_colors, save_annotation_colors};
 use kymo::types::TypeSettings;
+use kymo::ui::settings::megabytes_text;
 use kymo::update::UpdateState;
 use kymo_core::ChannelKind;
 use proptest::prelude::*;
@@ -75,7 +76,7 @@ fn types(
 fn saved_settings_read_back() {
     let settings = Settings {
         tile_cache_mb: 1024,
-        gpu_memory_mb: 96,
+        gpu_memory_mb: 512,
         default_window_s: 7.5,
         antialias: true,
         scale_bars: false,
@@ -127,7 +128,7 @@ fn saved_settings_read_back() {
         assert_eq!(Settings::load(Some(&storage)).theme, theme);
     }
     assert_eq!(settings.tile_cache_bytes(), 1024 << 20);
-    assert_eq!(settings.gpu_memory_bytes(), 96 << 20);
+    assert_eq!(settings.gpu_memory_bytes(), 512 << 20);
 }
 
 #[test]
@@ -259,14 +260,58 @@ fn values_out_of_range_are_clamped() {
     }
     .save(&mut storage);
     let loaded = Settings::load(Some(&storage));
-    assert_eq!(loaded.tile_cache_mb, *TILE_CACHE_MB.start());
-    assert_eq!(loaded.gpu_memory_mb, *GPU_MEMORY_MB.end());
+    assert_eq!(loaded.tile_cache_mb, TILE_CACHE_MB[0]);
+    assert_eq!(loaded.gpu_memory_mb, *GPU_MEMORY_MB.last().unwrap());
     assert_eq!(loaded.default_window_s, *DEFAULT_WINDOW_S.end());
     storage.set_string("kymo.default_window_s", "-3".into());
     assert_eq!(
         Settings::load(Some(&storage)).default_window_s,
         *DEFAULT_WINDOW_S.start()
     );
+}
+
+/// Budgets saved by earlier versions, which took any number of MB, read back as the nearest
+/// offered one; the defaults are offered.
+#[test]
+fn budgets_snap_to_the_nearest_offered() {
+    let defaults = Settings::default();
+    assert!(TILE_CACHE_MB.contains(&defaults.tile_cache_mb));
+    assert!(GPU_MEMORY_MB.contains(&defaults.gpu_memory_mb));
+    for (saved, tile, gpu) in [
+        ("0", 128, 128),
+        ("64", 128, 128),
+        ("100", 128, 128),
+        ("181", 128, 128),
+        ("182", 256, 256),
+        ("300", 256, 256),
+        ("700", 512, 512),
+        ("1000", 1024, 1024),
+        ("2500", 2048, 2048),
+        ("3000", 4096, 2048),
+        ("16384", 4096, 2048),
+        ("65536", 4096, 2048),
+    ] {
+        let mut storage = Memory::default();
+        storage.set_string("kymo.tile_cache_mb", saved.into());
+        storage.set_string("kymo.gpu_memory_mb", saved.into());
+        let loaded = Settings::load(Some(&storage));
+        assert_eq!(
+            (loaded.tile_cache_mb, loaded.gpu_memory_mb),
+            (tile, gpu),
+            "{saved}"
+        );
+    }
+    // As near either way: the smaller.
+    assert_eq!(nearest(4, &[2, 8]), 2);
+}
+
+#[test]
+fn budgets_read_in_mb_or_gb() {
+    assert_eq!(megabytes_text(128), "128 MB");
+    assert_eq!(megabytes_text(512), "512 MB");
+    assert_eq!(megabytes_text(1024), "1 GB");
+    assert_eq!(megabytes_text(4096), "4 GB");
+    assert_eq!(megabytes_text(1536), "1.5 GB");
 }
 
 proptest! {

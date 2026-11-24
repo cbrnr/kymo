@@ -10,6 +10,7 @@ use kymo::ui::status::{
     annotations_text, build_text, format_value, pointer_text, range_decimals, range_text,
     reading_text, selection_text, time_decimals,
 };
+use kymo::ui::stepper::{format_number, parse_number, step_by};
 use kymo_core::service::BuildProgress;
 use proptest::prelude::*;
 
@@ -176,4 +177,31 @@ fn the_selection_text_writes_lengths_on_their_own_clock() {
     assert_eq!(text(2.0, 2.0), "BAD at 0:00:02.000 for 2.000 s");
     assert_eq!(text(150.0, 95.0), "BAD at 0:02:30.000 for 1:35.000");
     assert_eq!(text(150.0, 0.0), "BAD at 0:02:30.000");
+}
+
+#[test]
+fn steppers_step_to_multiples() {
+    assert_eq!(step_by(20.0, 1.0, 1.0), 21.0);
+    assert_eq!(step_by(20.0, 1.0, -1.0), 19.0);
+    assert_eq!(step_by(20.0, 1.0, 3.0), 23.0);
+    // Between two multiples: to the next one first.
+    assert_eq!(step_by(7.5, 1.0, 1.0), 8.0);
+    assert_eq!(step_by(7.5, 1.0, -1.0), 7.0);
+    assert_eq!(step_by(7.5, 1.0, -2.0), 6.0);
+    // Within rounding of a multiple, at it.
+    assert!((step_by(0.1 + 0.2, 0.1, 1.0) - 0.4).abs() < 1e-12);
+}
+
+#[test]
+fn stepper_fields_read_and_show_numbers() {
+    assert_eq!(format_number(20.0), "20");
+    assert_eq!(format_number(7.5), "7.5");
+    assert_eq!(format_number(1.0 / 3.0), "0.333");
+    assert_eq!(format_number(-0.0001), "0");
+    assert_eq!(parse_number(" 12.5 "), Some(12.5));
+    assert_eq!(parse_number("12,5"), Some(12.5));
+    assert_eq!(parse_number(""), None);
+    assert_eq!(parse_number("abc"), None);
+    assert_eq!(parse_number("inf"), None);
+    assert_eq!(parse_number("NaN"), None);
 }

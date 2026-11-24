@@ -3218,6 +3218,18 @@ fn set_field(harness: &mut Harness<'_, KymoApp>, label: &str, value: f64) {
     harness.run_steps(2);
 }
 
+/// Picks `choice` from the menu labeled `label` in the Settings window.
+fn pick_budget(harness: &mut Harness<'_, KymoApp>, label: &str, choice: &str) {
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::ComboBox, label)
+        .click();
+    harness.run_steps(2);
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, choice)
+        .click();
+    harness.run_steps(2);
+}
+
 #[test]
 fn settings_apply_at_once() {
     let file = TempFile::preset("bdf+c-small");
@@ -3228,14 +3240,11 @@ fn settings_apply_at_once() {
     assert!(harness.state().settings_open());
 
     // The tile cache: the service's budget changes, and the cached tiles stay within it.
-    set_field(&mut harness, "Tile Cache", 100.0);
-    assert_eq!(harness.state().settings().tile_cache_mb, 100);
+    pick_budget(&mut harness, "Tile Cache", "128 MB");
+    assert_eq!(harness.state().settings().tile_cache_mb, 128);
     let cache = viewer(&harness).cache();
-    assert_eq!(cache.budget(), 100 << 20);
+    assert_eq!(cache.budget(), 128 << 20);
     assert!(cache.bytes() <= cache.budget());
-    // Out of range: the nearest allowed value.
-    set_field(&mut harness, "Tile Cache", 1.0);
-    assert_eq!(viewer(&harness).cache().budget(), 64 << 20);
 
     // The default window: ⌘0 shows it from now on; the window on screen stays.
     set_field(&mut harness, "Default Window", 12.5);
@@ -3245,8 +3254,11 @@ fn settings_apply_at_once() {
     harness.step();
     assert_eq!(viewer(&harness).view().time(), 5.0..17.5);
 
-    set_field(&mut harness, "GPU Memory", 512.0);
-    assert_eq!(harness.state().settings().gpu_memory_mb, 512);
+    pick_budget(&mut harness, "GPU Memory", "1 GB");
+    assert_eq!(harness.state().settings().gpu_memory_mb, 1024);
+    // The default is offered, and marked.
+    pick_budget(&mut harness, "Tile Cache", "256 MB (Default)");
+    assert_eq!(viewer(&harness).cache().budget(), 256 << 20);
 
     // Restore Defaults, at once too.
     harness.get_by_label("Restore Defaults").click();
@@ -3256,6 +3268,103 @@ fn settings_apply_at_once() {
     harness.key_press_modifiers(command(), Key::Num0);
     harness.step();
     assert_eq!(viewer(&harness).view().time(), 5.0..25.0);
+}
+
+/// The Default Window's stepper: its arrows step a second, held they repeat, the arrow keys
+/// step while the field has focus, and typed text applies on Return, never past the range.
+#[test]
+fn default_window_steps_and_takes_typed_values() {
+    let file = TempFile::preset("bdf+c-small");
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    harness.key_press_modifiers(command(), Key::Comma);
+    harness.step();
+    let seconds = |harness: &Harness<'_, KymoApp>| harness.state().settings().default_window_s;
+    let arrow = |harness: &Harness<'_, KymoApp>, name: &str| {
+        harness
+            .get_by_role_and_label(egui::accesskit::Role::Button, name)
+            .rect()
+            .center()
+    };
+
+    let up = arrow(&harness, "Up");
+    harness.hover_at(up);
+    harness.event(egui::Event::PointerButton {
+        pos: up,
+        button: egui::PointerButton::Primary,
+        pressed: true,
+        modifiers: Modifiers::NONE,
+    });
+    harness.step();
+    harness.event(egui::Event::PointerButton {
+        pos: up,
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: Modifiers::NONE,
+    });
+    harness.run_steps(2);
+    assert_eq!(seconds(&harness), 21.0);
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "Down")
+        .click();
+    harness.run_steps(2);
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::Button, "Down")
+        .click();
+    harness.run_steps(2);
+    assert_eq!(seconds(&harness), 19.0);
+
+    // Typed, with a decimal comma.
+    let field = || egui::accesskit::Role::SpinButton;
+    harness
+        .get_by_role_and_label(field(), "Default Window")
+        .focus();
+    harness.step();
+    harness.key_press_modifiers(command(), Key::A);
+    harness
+        .get_by_role_and_label(field(), "Default Window")
+        .type_text("12,5");
+    harness.step();
+    // Not before Return.
+    assert_eq!(seconds(&harness), 19.0);
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(seconds(&harness), 12.5);
+
+    // The arrow keys, in the field.
+    harness
+        .get_by_role_and_label(field(), "Default Window")
+        .focus();
+    harness.step();
+    harness.key_press(Key::ArrowUp);
+    harness.run_steps(2);
+    assert_eq!(seconds(&harness), 13.0);
+    for _ in 0..2 {
+        harness.key_press(Key::ArrowDown);
+        harness.step();
+    }
+    assert_eq!(seconds(&harness), 11.0);
+
+    // Past the range, typed: its end; unreadable: as it was.
+    harness.key_press_modifiers(command(), Key::A);
+    harness
+        .get_by_role_and_label(field(), "Default Window")
+        .type_text("99999");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(seconds(&harness), 3600.0);
+    harness
+        .get_by_role_and_label(field(), "Default Window")
+        .focus();
+    harness.step();
+    harness.key_press_modifiers(command(), Key::A);
+    harness
+        .get_by_role_and_label(field(), "Default Window")
+        .type_text("soon");
+    harness.key_press(Key::Enter);
+    harness.run_steps(2);
+    assert_eq!(seconds(&harness), 3600.0);
+    assert!(harness.state().settings_open());
 }
 
 /// Steps until a label containing `text` shows.
@@ -3283,7 +3392,7 @@ fn settings_clear_the_disk_cache() {
     let foreign = dir.path().join("notes.txt");
     std::fs::write(&foreign, b"mine").unwrap();
     let settings = Settings {
-        tile_cache_mb: 100,
+        tile_cache_mb: 1024,
         ..Settings::default()
     };
     let path = file.path().to_owned();
@@ -3317,7 +3426,7 @@ fn settings_clear_the_disk_cache() {
     assert!(!other.exists());
     assert!(open.exists());
     assert!(foreign.exists());
-    assert_eq!(harness.state().settings().tile_cache_mb, 100);
+    assert_eq!(harness.state().settings().tile_cache_mb, 1024);
 
     // Closed and opened again, it is measured again.
     harness.key_press(Key::Escape);
@@ -3759,19 +3868,18 @@ fn settings_are_kept_between_runs() {
         harness.key_press_modifiers(command(), Key::Comma);
         harness.step();
         set_field(&mut harness, "Default Window", 8.0);
-        set_field(&mut harness, "Tile Cache", 300.0);
+        pick_budget(&mut harness, "Tile Cache", "1 GB");
         eframe::App::save(harness.state_mut(), &mut storage);
     }
 
-    // The next run starts with them: a recording opens with an 8 s window and a 300 MB
-    // cache.
+    // The next run starts with them: a recording opens with an 8 s window and a 1 GB cache.
     let settings = Settings::load(Some(&storage));
     assert_eq!(settings.default_window_s, 8.0);
-    assert_eq!(settings.tile_cache_mb, 300);
+    assert_eq!(settings.tile_cache_mb, 1024);
     let mut harness = window_with(file.path(), settings);
     ready(&mut harness);
     assert_eq!(viewer(&harness).view().time(), 0.0..8.0);
-    assert_eq!(viewer(&harness).cache().budget(), 300 << 20);
+    assert_eq!(viewer(&harness).cache().budget(), 1024 << 20);
     assert!(!harness.state().settings_open());
 }
 
@@ -4533,8 +4641,8 @@ fn the_gpu_budget_follows_the_settings() {
     assert_eq!(gpu(&harness), Some(256 << 20));
     harness.key_press_modifiers(command(), Key::Comma);
     harness.step();
-    set_field(&mut harness, "GPU Memory", 96.0);
-    assert_eq!(gpu(&harness), Some(96 << 20));
+    pick_budget(&mut harness, "GPU Memory", "128 MB");
+    assert_eq!(gpu(&harness), Some(128 << 20));
     // The traces stay drawn.
     assert!(viewer(&harness).complete());
 }
