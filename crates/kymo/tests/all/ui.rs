@@ -41,12 +41,15 @@ fn without_triggers(name: &str) -> TempFile {
 }
 
 /// Pyramids in memory, the menu bar drawn by egui as on Linux, on every platform, and
-/// default settings.
+/// default settings but for egui's fonts, the same on every platform.
 fn options() -> Options {
     Options {
         sidecar_dir: None,
         menus: Menus::Egui(Platform::Linux),
-        settings: Settings::default(),
+        settings: Settings {
+            system_font: false,
+            ..Settings::default()
+        },
         annotation_colors: Default::default(),
         recent: Default::default(),
         updates: None,

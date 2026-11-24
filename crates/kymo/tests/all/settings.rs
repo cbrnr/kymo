@@ -41,7 +41,11 @@ fn defaults_without_storage_or_values() {
     assert!(!defaults.antialias);
     assert!(defaults.auto_scale_on_open);
     assert_eq!(defaults.theme, Theme::System);
-    assert!(!defaults.system_font);
+    // On where Kymo has a system font to use.
+    assert_eq!(
+        defaults.system_font,
+        kymo::ui::fonts::SYSTEM_FONT_NAME.is_some()
+    );
     assert_eq!(Settings::load(None), defaults);
     assert_eq!(Settings::load(Some(&Memory::default())), defaults);
 }

@@ -120,7 +120,8 @@ pub struct Settings {
     pub auto_scale_on_open: bool,
     pub theme: Theme,
     /// Whether text is in the system's interface font rather than egui's (see
-    /// [`crate::ui::fonts`]).
+    /// [`crate::ui::fonts`]); by default wherever there is one (macOS, Windows), as egui's,
+    /// Ubuntu Light, is thin and looks foreign there.
     pub system_font: bool,
     /// Whether Kymo asks GitHub for a newer release at startup, at most once a day (see
     /// [`crate::update`]).
@@ -139,7 +140,7 @@ impl Default for Settings {
             types: TypeSettings::default(),
             auto_scale_on_open: true,
             theme: Theme::System,
-            system_font: false,
+            system_font: crate::ui::fonts::SYSTEM_FONT_NAME.is_some(),
             check_updates: true,
         }
     }
