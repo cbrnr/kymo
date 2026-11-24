@@ -4,7 +4,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use eframe::egui::{self, FontData, FontDefinitions, FontFamily};
+use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontTweak};
+use eframe::epaint::text::VariationCoords;
 
 /// The system's interface font, as Settings names it, where Kymo can use it: macOS's and
 /// Windows's. Linux has no one font file for it.
@@ -23,9 +24,10 @@ pub fn apply_fonts(ctx: &egui::Context, system: bool) {
     let mut fonts = FontDefinitions::default();
     if let Some(bytes) = system.then(system_font).flatten() {
         let name = "System".to_owned();
-        fonts
-            .font_data
-            .insert(name.clone(), Arc::new(FontData::from_owned(bytes)));
+        fonts.font_data.insert(
+            name.clone(),
+            Arc::new(FontData::from_owned(bytes).tweak(text_cut())),
+        );
         fonts
             .families
             .entry(FontFamily::Proportional)
@@ -34,6 +36,18 @@ pub fn apply_fonts(ctx: &egui::Context, system: bool) {
     }
     add_symbol_font(&mut fonts);
     ctx.set_fonts(fonts);
+}
+
+/// SF Pro in its text cut, as macOS shows it at the interface's sizes: a variable font
+/// whose default instance is the display cut (optical size 28), with tighter spacing and
+/// thinner strokes, which looks cramped and light at 13 points. macOS uses optical size 17,
+/// the axis's smallest, for every size up to 17 points; all of Kymo's text is that small.
+/// Segoe UI is no variable font; the tweak changes nothing there.
+fn text_cut() -> FontTweak {
+    FontTweak {
+        coords: VariationCoords::new([(b"opsz", 17.0)]),
+        ..Default::default()
+    }
 }
 
 /// The system's interface font file, if Kymo uses one and it can be read. Kymo has no
@@ -58,9 +72,10 @@ fn add_symbol_font(fonts: &mut FontDefinitions) {
     #[cfg(target_os = "macos")]
     if let Ok(bytes) = std::fs::read("/System/Library/Fonts/LucidaGrande.ttc") {
         let name = "Lucida Grande".to_owned();
-        fonts
-            .font_data
-            .insert(name.clone(), Arc::new(FontData::from_owned(bytes)));
+        fonts.font_data.insert(
+            name.clone(),
+            Arc::new(FontData::from_owned(bytes).tweak(text_cut())),
+        );
         for family in [FontFamily::Proportional, FontFamily::Monospace] {
             fonts.families.entry(family).or_default().push(name.clone());
         }

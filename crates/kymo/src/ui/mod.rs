@@ -1,6 +1,7 @@
 //! Pieces of the window: the time axis, scrollbars, the status line, the sidebar, trace
-//! colors and the color picker, the egui-drawn menus and windows, the Settings and
-//! Recording Info windows, the renderer inside egui, and which of the windows is in front.
+//! colors, the light and dark looks and the color picker, the egui-drawn menus and windows,
+//! the Settings and Recording Info windows, the renderer inside egui, and which of the
+//! windows is in front.
 
 pub mod axis;
 pub mod color;
@@ -15,6 +16,7 @@ pub mod readout;
 pub mod scrollbar;
 pub mod settings;
 pub mod status;
+pub mod theme;
 pub mod types;
 
 use eframe::egui::{Button, Color32, Context, FontId, IntoAtoms, Label, RichText};

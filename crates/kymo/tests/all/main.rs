@@ -27,6 +27,7 @@ mod scale_bar;
 mod settings;
 mod shortcuts;
 mod stim_annotations;
+mod theme;
 mod types;
 mod ui;
 mod view;

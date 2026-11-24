@@ -32,6 +32,7 @@ use crate::ui::header;
 use crate::ui::info::info_window;
 use crate::ui::menus::{MenuState, about_window, egui_menu_bar, shortcuts_window};
 use crate::ui::settings::settings_window;
+use crate::ui::theme;
 use crate::ui::types::channel_types_window;
 use crate::update::{self, Check, Release, Source, UpdateState};
 use crate::viewer::Viewer;
@@ -226,6 +227,7 @@ impl KymoApp {
         });
         let system_font = options.settings.system_font;
         apply_fonts(ctx, system_font);
+        theme::apply(ctx, None);
         gpu.set_budget(options.settings.gpu_memory_bytes());
         let disk_cache = DiskCache::new(options.sidecar_dir.clone());
         let mut app = KymoApp {
