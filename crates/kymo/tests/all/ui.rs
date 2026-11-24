@@ -41,12 +41,15 @@ fn without_triggers(name: &str) -> TempFile {
 }
 
 /// Pyramids in memory, the menu bar drawn by egui as on Linux, on every platform, and
-/// default settings.
+/// default settings but for egui's fonts, the same on every platform.
 fn options() -> Options {
     Options {
         sidecar_dir: None,
         menus: Menus::Egui(Platform::Linux),
-        settings: Settings::default(),
+        settings: Settings {
+            system_font: false,
+            ..Settings::default()
+        },
         annotation_colors: Default::default(),
         recent: Default::default(),
         updates: None,
@@ -4493,7 +4496,7 @@ fn dc_removal_brings_an_offset_trace_into_its_row() {
         egui::accesskit::Role::CheckBox,
         "Show Annotations",
     );
-    let trace = harness.ctx.global_style().visuals.text_color();
+    let trace = trace_color(&ChannelKind::EEG, &harness.ctx.global_style().visuals);
     // Pixels of the first row (A1) in the trace color.
     let a1_pixels = |harness: &mut Harness<'_, KymoApp>| {
         let traces = viewer(harness).layout().unwrap().traces;
@@ -4957,8 +4960,8 @@ fn stim_traces_stay_in_their_row() {
     whole_pixels(&mut harness);
     let visuals = harness.ctx.global_style().visuals.clone();
     let gray = trace_color(&kymo_core::ChannelKind::STIM, &visuals);
-    let text = visuals.text_color();
-    // Per row, the pixels in the stim color and in the text color; and the pixel line of
+    let text = trace_color(&kymo_core::ChannelKind::EEG, &visuals);
+    // Per row, the pixels in the stim color and in EEG's gray; and the pixel line of
     // the last row with the most stim-colored pixels, from the row's top.
     let counts = |harness: &mut Harness<'_, KymoApp>| {
         let traces = viewer(harness).layout().unwrap().traces;

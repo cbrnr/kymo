@@ -38,8 +38,9 @@ objc2 = "0.6.5"
 # macOS only, already pulled in by eframe; names the process for the app menu and reads the
 # files Finder hands over.
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSBundle", "NSProcessInfo", "NSString", "NSURL"] }
-# macOS only, already pulled in by winit; lets the menus take the theme setting.
-objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSAppearance", "NSApplication", "NSResponder"] }
+# macOS only, already pulled in by winit; lets the menus take the theme setting and reads
+# the accent color.
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "objc2-core-foundation", "NSAppearance", "NSApplication", "NSColor", "NSColorSpace", "NSResponder"] }
 pollster = "1.0"
 proptest = "1"
 rfd = "0.17.2"

@@ -42,7 +42,7 @@ CHANGELOG.md         release notes in MNELAB's format; user-visible changes add 
 
 - Stable Rust, edition 2024. `cargo fmt` and `cargo clippy --all-targets -- -D warnings` must be clean.
 - Error handling: `thiserror` in `kymo-core`, `anyhow` only in binaries. No `unwrap()` on file input.
-- `unsafe` only where unavoidable (memory mapping; attaching the native menu to the window on Windows, as muda requires, and letting it follow the theme there (uxtheme, and the app mode from the registry); attaching to the terminal's console on Windows; adding the method that receives files from Finder to winit's app delegate on macOS; reading peak memory in the frames benchmark), with a `// SAFETY:` comment.
+- `unsafe` only where unavoidable (memory mapping; attaching the native menu to the window on Windows, as muda requires, and letting it follow the theme there (uxtheme, and the app mode and accent color from the registry); attaching to the terminal's console on Windows; adding the method that receives files from Finder to winit's app delegate on macOS; reading peak memory in the frames benchmark), with a `// SAFETY:` comment.
 - Tests are behavioral: they check outputs (decoded samples, tile values, annotations), not internal structure.
   Use `proptest` to compare tiles against a brute-force min/max pass.
 - Integration tests live in one binary per crate, `tests/all/`, a module per area (`main.rs` lists them), so they link once

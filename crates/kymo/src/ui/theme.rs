@@ -1,0 +1,135 @@
+//! Kymo's light and dark looks: egui's, with text, controls and the selection given the
+//! contrast of the system's own apps (modeled on macOS's semantic colors), the selection in
+//! the system's accent color, and glyphs unhinted on macOS, as macOS draws them (their
+//! weight comes from the font, see [`crate::ui::fonts`]).
+//!
+//! Text has at least WCAG's 4.5:1 against the panels, weak text too (egui's default weak
+//! text, its normal text at 60 % opacity, had less than 3:1). Controls get a border, so that
+//! checkboxes and radio buttons stand out from the panel. The trace area and the trace
+//! colors are not changed.
+
+use eframe::egui::{self, Color32, Rgba, Stroke, Visuals};
+
+/// The accent color where the system tells none: macOS's default blue.
+pub const DEFAULT_ACCENT: Color32 = Color32::from_rgb(0, 122, 255);
+
+/// Contrast that text needs against its background (WCAG's AA for normal text).
+pub const TEXT_CONTRAST: f32 = 4.5;
+
+/// Sets the light and the dark look on `ctx`, the selection in `accent` (the system's, or
+/// [`DEFAULT_ACCENT`]).
+pub fn apply(ctx: &egui::Context, accent: Option<Color32>) {
+    ctx.set_visuals_of(egui::Theme::Light, light(accent));
+    ctx.set_visuals_of(egui::Theme::Dark, dark(accent));
+}
+
+/// The light look.
+pub fn light(accent: Option<Color32>) -> Visuals {
+    let mut v = Visuals::light();
+    let text = Color32::from_gray(30);
+    let strong = Color32::BLACK;
+    let w = &mut v.widgets;
+    w.noninteractive.fg_stroke.color = text;
+    w.noninteractive.bg_stroke.color = Color32::from_gray(200);
+    // White controls with a border, as the system's, on the light gray panel.
+    w.inactive.weak_bg_fill = Color32::WHITE;
+    w.inactive.bg_fill = Color32::WHITE;
+    w.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(160));
+    w.inactive.fg_stroke.color = text;
+    w.hovered.weak_bg_fill = Color32::from_gray(236);
+    w.hovered.bg_fill = Color32::from_gray(236);
+    w.hovered.bg_stroke.color = Color32::from_gray(120);
+    w.hovered.fg_stroke.color = strong;
+    w.active.weak_bg_fill = Color32::from_gray(214);
+    w.active.bg_fill = Color32::from_gray(214);
+    w.active.fg_stroke.color = strong;
+    w.open.fg_stroke.color = strong;
+    // 4.9:1 on the panel, 4.4:1 on a hovered control.
+    v.weak_text_color = Some(Color32::from_gray(108));
+    v.error_fg_color = Color32::from_rgb(200, 20, 20);
+    v.warn_fg_color = Color32::from_rgb(180, 80, 0);
+    v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), false, v.panel_fill);
+    v.hyperlink_color = v.selection.stroke.color;
+    v.text_options.font_hinting = FONT_HINTING;
+    v
+}
+
+/// The dark look.
+pub fn dark(accent: Option<Color32>) -> Visuals {
+    let mut v = Visuals::dark();
+    let text = Color32::from_gray(225);
+    let strong = Color32::WHITE;
+    let w = &mut v.widgets;
+    w.noninteractive.fg_stroke.color = text;
+    w.noninteractive.bg_stroke.color = Color32::from_gray(70);
+    w.inactive.bg_stroke = Stroke::new(1.0, Color32::from_gray(95));
+    w.inactive.fg_stroke.color = text;
+    w.hovered.fg_stroke.color = strong;
+    w.active.fg_stroke.color = strong;
+    w.open.fg_stroke.color = strong;
+    // 6.2:1 on the panel, 5:1 on a control.
+    v.weak_text_color = Some(Color32::from_gray(155));
+    v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), true, v.panel_fill);
+    v.hyperlink_color = v.selection.stroke.color;
+    v.text_options.font_hinting = FONT_HINTING;
+    v
+}
+
+/// Whether glyph outlines are hinted to the pixel grid: not on macOS, which doesn't hint
+/// either (its displays have the pixels not to need it); elsewhere as egui does.
+pub const FONT_HINTING: bool = !cfg!(target_os = "macos");
+
+/// The selection in `accent`: a tint of it behind selected controls and text, which keep a
+/// shade of it for their text, far enough from the tint to read. The tint is kept dark
+/// enough (light enough in light mode) for white (black) to have 7:1 on it, so that a
+/// shade with 4.5:1 exists for any accent, a very light or dark one too.
+fn selection(accent: Color32, dark: bool, panel: Color32) -> egui::style::Selection {
+    let (fill, toward) = if dark {
+        let tint = mix(panel, accent, 0.45);
+        (
+            contrasting(tint, Color32::WHITE, Color32::BLACK, 7.0),
+            Color32::WHITE,
+        )
+    } else {
+        let tint = mix(Color32::WHITE, accent, 0.3);
+        (
+            contrasting(tint, Color32::BLACK, Color32::WHITE, 7.0),
+            Color32::BLACK,
+        )
+    };
+    egui::style::Selection {
+        bg_fill: fill,
+        stroke: Stroke::new(1.0, contrasting(accent, fill, toward, TEXT_CONTRAST)),
+    }
+}
+
+/// `a` moved the fraction `t` of the way to `b`, in sRGB.
+pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    let channel = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+    Color32::from_rgb(
+        channel(a.r(), b.r()),
+        channel(a.g(), b.g()),
+        channel(a.b(), b.b()),
+    )
+}
+
+/// `color`, or the least mix of it with `toward` (black or white) that has `ratio` against
+/// `background`; `toward` itself if nothing less does.
+pub fn contrasting(color: Color32, background: Color32, toward: Color32, ratio: f32) -> Color32 {
+    (0..=20)
+        .map(|step| mix(color, toward, step as f32 / 20.0))
+        .find(|&c| contrast(c, background) >= ratio)
+        .unwrap_or(toward)
+}
+
+/// WCAG's contrast ratio of two opaque colors, from 1 to 21.
+pub fn contrast(a: Color32, b: Color32) -> f32 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// Relative luminance, from linear RGB.
+fn luminance(color: Color32) -> f32 {
+    let c = Rgba::from(color);
+    0.2126 * c.r() + 0.7152 * c.g() + 0.0722 * c.b()
+}

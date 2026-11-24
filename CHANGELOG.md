@@ -1,6 +1,11 @@
 # Changelog
 
-## [UNRELEASED] · 2026-11-23
+## [UNRELEASED] · 2026-11-24
+### 🌀 Changed
+- Raise the interface's contrast in both themes, draw text closer to how macOS does, and color selections in the system's accent color ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).
+- Use the system font by default on macOS and Windows ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).
+### 🔧 Fixed
+- Fix the System theme staying dark on macOS after switching between Light and Dark ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ## [0.1.0] · 2026-11-23
 ### ✨ Added

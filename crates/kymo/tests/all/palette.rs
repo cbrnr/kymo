@@ -1,7 +1,8 @@
 //! Trace colors per channel type, in light and dark themes.
 
-use eframe::egui::{Color32, Visuals};
-use kymo::ui::palette::{bad_color, trace_color};
+use eframe::egui::Color32;
+use kymo::ui::palette::{GRAY_TRACES, bad_color, trace_color};
+use kymo::ui::theme;
 use kymo_core::ChannelKind;
 
 /// Sum of the channel differences, ignoring alpha.
@@ -81,11 +82,15 @@ fn delta_e(a: Color32, b: Color32, vision: &[[f64; 3]; 3]) -> f64 {
 fn types_are_told_apart_in_both_themes() {
     use crate::kinds::*;
     let kind = ChannelKind::named;
-    for visuals in [Visuals::light(), Visuals::dark()] {
+    for visuals in [theme::light(None), theme::dark(None)] {
         let background = visuals.extreme_bg_color;
-        let text = visuals.text_color();
+        let text = Color32::from_gray(if visuals.dark_mode {
+            GRAY_TRACES.1
+        } else {
+            GRAY_TRACES.0
+        });
         let color = |kind: &ChannelKind| trace_color(kind, &visuals);
-        // EEG, misc and every type without a hue of its own in the text color.
+        // EEG, misc and every type without a hue of its own in gray.
         for k in [
             Eeg,
             Misc,

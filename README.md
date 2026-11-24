@@ -88,7 +88,7 @@ The following sections show keyboard shortcuts for macOS. On Windows and Linux, 
 
 ### Look and feel
 
-- Choose a light or dark theme, or follow the system setting.
+- Choose a light or dark theme, or follow the system setting; selections take the system's accent color.
 - Choose custom colors for channel types and annotations.
 - Kymo uses native menus and standard keyboard shortcuts on each platform; **Help → Keyboard Shortcuts** lists them all.
 - Settings are saved between sessions.

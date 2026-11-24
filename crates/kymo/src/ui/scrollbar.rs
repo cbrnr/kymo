@@ -88,10 +88,13 @@ pub fn show(
 
     if ui.is_rect_visible(rect) && total > len {
         let visuals = ui.visuals();
+        // The weak text's color: as the system's scroll bars, it stands out on the trace
+        // area and the panels, in both themes, and more so under the pointer.
+        let weak = visuals.weak_text_color();
         let color = if response.dragged() || response.hovered() {
-            visuals.widgets.hovered.bg_fill
+            weak
         } else {
-            visuals.widgets.inactive.bg_fill
+            weak.gamma_multiply(0.6)
         };
         let at = start.unwrap_or(visible.start);
         let shown = thumb(track, total, &(at..at + len));

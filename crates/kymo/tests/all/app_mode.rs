@@ -1,7 +1,45 @@
 //! The system's app mode System follows: the desktop portal's color scheme on Linux, the
-//! registry on Windows.
+//! registry on Windows; and its accent color.
 
-use kymo::app_mode::color_scheme_dark;
+use eframe::egui::Color32;
+use kymo::app_mode::{AppMode, color_scheme_dark, portal_accent};
+
+#[test]
+fn the_portals_accent_color_is_one_only_within_range() {
+    assert_eq!(
+        portal_accent([0.0, 0.5, 1.0]),
+        Some(Color32::from_rgb(0, 128, 255))
+    );
+    // Black is a color, not none.
+    assert_eq!(portal_accent([0.0; 3]), Some(Color32::BLACK));
+    // Out of range means unset (GNOME sends (-1, -1, -1) for none).
+    assert_eq!(portal_accent([-1.0; 3]), None);
+    assert_eq!(portal_accent([0.2, 1.5, 0.2]), None);
+    assert_eq!(portal_accent([f64::NAN, 0.2, 0.2]), None);
+}
+
+#[test]
+fn the_accent_color_is_kept_as_set() {
+    let mode = AppMode::new();
+    assert_eq!(mode.accent(), None);
+    for color in [Color32::BLACK, Color32::from_rgb(1, 2, 3), Color32::WHITE] {
+        mode.set_accent(Some(color));
+        assert_eq!(mode.accent(), Some(color));
+        // Shared with its clones, as with the thread that watches it.
+        assert_eq!(mode.clone().accent(), Some(color));
+    }
+    mode.set_accent(None);
+    assert_eq!(mode.accent(), None);
+}
+
+/// macOS always has an accent color (blue unless one is picked).
+#[cfg(target_os = "macos")]
+#[test]
+fn the_accent_color_is_read_on_macos() {
+    let mode = AppMode::new();
+    mode.refresh_accent();
+    assert!(mode.accent().is_some());
+}
 
 #[test]
 fn the_portals_color_scheme_is_dark_only_when_it_says_so() {
@@ -17,6 +55,7 @@ fn the_portals_color_scheme_is_dark_only_when_it_says_so() {
 /// or desktop needed.
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal {
+    use eframe::egui::Color32;
     use kymo::app_mode::AppMode;
     use std::os::unix::net::UnixStream;
     use std::sync::Arc;
@@ -31,21 +70,29 @@ mod portal {
     /// The scheme of a portal that doesn't have the setting.
     const NOT_SUPPORTED: u32 = u32::MAX;
 
+    /// The accent color the portal answers with: GNOME 47's (its blue).
+    const ACCENT: (f64, f64, f64) = (0.207, 0.517, 0.894);
+
     /// What the portal's `Settings` interface answers for `Read`.
     struct Portal(Arc<AtomicU32>);
 
     #[zbus::interface(name = "org.freedesktop.portal.Settings")]
     impl Portal {
-        /// The value in a second variant, as portals send it.
+        /// The value in a second variant, as portals send it. The accent color where the
+        /// color scheme is supported.
         fn read(&self, namespace: &str, key: &str) -> zbus::fdo::Result<Value<'static>> {
             let scheme = self.0.load(Ordering::SeqCst);
-            if (namespace, key) == ("org.freedesktop.appearance", "color-scheme")
-                && scheme != NOT_SUPPORTED
-            {
-                Ok(Value::Value(Box::new(Value::U32(scheme))))
-            } else {
-                Err(zbus::fdo::Error::Failed("no such setting".into()))
+            match (namespace, key) {
+                _ if scheme == NOT_SUPPORTED => {}
+                ("org.freedesktop.appearance", "color-scheme") => {
+                    return Ok(Value::Value(Box::new(Value::U32(scheme))));
+                }
+                ("org.freedesktop.appearance", "accent-color") => {
+                    return Ok(Value::Value(Box::new(Value::from(ACCENT))));
+                }
+                _ => {}
             }
+            Err(zbus::fdo::Error::Failed("no such setting".into()))
         }
     }
 
@@ -79,6 +126,46 @@ mod portal {
                 &(namespace, key, Value::U32(value)),
             )
             .unwrap();
+    }
+
+    fn accent_changed(server: &Connection, rgb: (f64, f64, f64)) {
+        server
+            .emit_signal(
+                None::<&str>,
+                PATH,
+                INTERFACE,
+                "SettingChanged",
+                &(
+                    "org.freedesktop.appearance",
+                    "accent-color",
+                    Value::from(rgb),
+                ),
+            )
+            .unwrap();
+    }
+
+    fn wait_for_accent(mode: &AppMode, accent: Option<Color32>) {
+        let until = Instant::now() + Duration::from_secs(10);
+        while mode.accent() != accent {
+            assert!(Instant::now() < until, "still {:?}", mode.accent());
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn the_accent_color_is_read_at_once_and_follows_the_portal() {
+        let scheme = Arc::new(AtomicU32::new(1));
+        let (client, server) = connect(&scheme, true);
+        let mode = AppMode::watch_connection(client, &eframe::egui::Context::default());
+        assert_eq!(mode.accent(), Some(Color32::from_rgb(53, 132, 228)));
+
+        accent_changed(&server, (1.0, 0.0, 0.0));
+        wait_for_accent(&mode, Some(Color32::from_rgb(255, 0, 0)));
+        // Unset, as GNOME sends it.
+        accent_changed(&server, (-1.0, -1.0, -1.0));
+        wait_for_accent(&mode, None);
+        // The mode stayed.
+        assert_eq!(mode.dark(), Some(true));
     }
 
     fn wait_for(mode: &AppMode, dark: Option<bool>) {
@@ -119,7 +206,8 @@ mod portal {
         let mode = AppMode::watch_connection(client, &eframe::egui::Context::default());
         assert_eq!(mode.dark(), Some(false));
 
-        // Each would make it dark, were it taken for the color scheme.
+        // Each would make it dark, were it taken for the color scheme; the accent color
+        // isn't three doubles, so none.
         changed(&server, "org.freedesktop.appearance", "accent-color", 1);
         changed(&server, "org.freedesktop.appearance", "contrast", 1);
         changed(&server, "org.gnome.desktop.interface", "color-scheme", 1);
@@ -137,6 +225,7 @@ mod portal {
         let started = Instant::now();
         let mode = AppMode::watch_connection(client, &eframe::egui::Context::default());
         assert_eq!(mode.dark(), None);
+        assert_eq!(mode.accent(), None);
         // The error ends the wait, which is otherwise half a second at most.
         assert!(started.elapsed() < Duration::from_millis(400));
     }
