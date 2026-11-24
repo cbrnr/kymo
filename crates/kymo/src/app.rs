@@ -922,7 +922,10 @@ impl KymoApp {
             Action::Quit => self.leave(ctx, Leave::Quit),
             Action::Shortcuts => self.shortcuts_open = !self.shortcuts_open,
             Action::RecordingInfo => self.info_open = !self.info_open,
-            Action::About => self.about_open = true,
+            Action::About => {
+                self.about_open = true;
+                Overlay::About.bring_to_front(ctx);
+            }
             Action::CheckForUpdates => self.check_for_updates(ctx, true),
             Action::ToggleSidebar => self.show_sidebar = !self.show_sidebar,
             Action::ToggleDc => self.set_settings(Settings {
@@ -937,11 +940,16 @@ impl KymoApp {
                 antialias: !self.options.settings.antialias,
                 ..self.options.settings.clone()
             }),
-            Action::Settings => self.settings_open = true,
+            // In front too if it was open, behind Channel Types, which opens over it.
+            Action::Settings => {
+                self.settings_open = true;
+                Overlay::Settings.bring_to_front(ctx);
+            }
             Action::GoToTime => {
                 if let Some(viewer) = self.viewer() {
                     self.go_to = GoToField::new(format_duration(viewer.view().start()));
                     self.go_to_open = true;
+                    Overlay::GoToTime.bring_to_front(ctx);
                 }
             }
             _ => {

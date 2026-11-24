@@ -11,7 +11,7 @@ use crate::action::Action;
 use crate::keymap::Platform;
 use crate::menu::{Item, SystemItem, menu_bar};
 use crate::shortcuts::overview;
-use crate::ui::Overlay;
+use crate::ui::{Overlay, window_title};
 
 /// What a menu shows for an action: whether it can run now, and its checkmark if it has
 /// one.
@@ -220,7 +220,8 @@ pub fn shortcuts_window(ctx: &egui::Context, open: &mut bool, platform: Platform
     // The window's outer width: the rows, the margins and the stroke.
     let stroke = 2.0 * style.visuals.window_stroke.width;
     let outer = width + f32::from(margin.left) + room + stroke;
-    egui::Window::new(Action::Shortcuts.label())
+    Overlay::Shortcuts.center_on_open(ctx, *open);
+    egui::Window::new(window_title(Action::Shortcuts.label()))
         .id(Overlay::Shortcuts.id())
         .frame(frame)
         .title_frame(title_frame)
@@ -268,7 +269,8 @@ const COLUMN_GAP: f32 = 32.0;
 
 /// The About window (Windows and Linux; macOS uses the system's About panel).
 pub fn about_window(ctx: &egui::Context, open: &mut bool) {
-    egui::Window::new(Action::About.label())
+    Overlay::About.center_on_open(ctx, *open);
+    egui::Window::new(window_title(Action::About.label()))
         .id(Overlay::About.id())
         .open(open)
         .collapsible(false)

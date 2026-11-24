@@ -1,10 +1,10 @@
 //! Go to Time…: a small window with a field for a time from the start of the recording.
 
 use eframe::egui::text::{CCursor, CCursorRange};
-use eframe::egui::{self, Align2, Key, TextEdit};
+use eframe::egui::{self, Key, TextEdit};
 
-use super::Overlay;
 use super::axis::parse_time;
+use super::{Overlay, window_title};
 use crate::action::Action;
 
 /// What the window's field holds between frames.
@@ -49,13 +49,13 @@ pub fn go_to_window(ctx: &egui::Context, open: &mut bool, field: &mut GoToField)
             .total_margin()
             .sum()
             .x;
-    egui::Window::new(Action::GoToTime.label().trim_end_matches('…'))
+    Overlay::GoToTime.center_on_open(ctx, *open);
+    let title = window_title(Action::GoToTime.label().trim_end_matches('…'));
+    egui::Window::new(title)
         .id(Overlay::GoToTime.id())
         .open(open)
         .collapsible(false)
         .resizable(false)
-        .pivot(Align2::CENTER_CENTER)
-        .default_pos(ctx.content_rect().center())
         // Exactly as wide as the content plus the frame; egui's default width is wider.
         .default_width(width)
         .min_width(width)

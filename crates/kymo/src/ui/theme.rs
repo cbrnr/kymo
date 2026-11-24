@@ -6,7 +6,8 @@
 //! Text has at least WCAG's 4.5:1 against the panels, weak text too (egui's default weak
 //! text, its normal text at 60 % opacity, had less than 3:1). Controls get a border, so that
 //! checkboxes and radio buttons stand out from the panel. The trace area and the trace
-//! colors are not changed.
+//! colors are not changed. Windows and menus cast their shadow as the system's do: on all
+//! four sides, a little lower than the window, so weakest at the top.
 
 use eframe::egui::{self, Color32, Rgba, Stroke, Visuals};
 
@@ -51,6 +52,7 @@ pub fn light(accent: Option<Color32>) -> Visuals {
     v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), false, v.panel_fill);
     v.hyperlink_color = v.selection.stroke.color;
     v.text_options.font_hinting = FONT_HINTING;
+    shadows(&mut v, 40);
     v
 }
 
@@ -72,7 +74,26 @@ pub fn dark(accent: Option<Color32>) -> Visuals {
     v.selection = selection(accent.unwrap_or(DEFAULT_ACCENT), true, v.panel_fill);
     v.hyperlink_color = v.selection.stroke.color;
     v.text_options.font_hinting = FONT_HINTING;
+    shadows(&mut v, 110);
     v
+}
+
+/// Shadows around windows and menus, `alpha` black at their darkest: shifted down by less
+/// than they blur, so that they show on all four sides (egui's fall to the right and below).
+fn shadows(v: &mut Visuals, alpha: u8) {
+    let color = Color32::from_black_alpha(alpha);
+    v.window_shadow = egui::Shadow {
+        offset: [0, 8],
+        blur: 28,
+        spread: 0,
+        color,
+    };
+    v.popup_shadow = egui::Shadow {
+        offset: [0, 4],
+        blur: 14,
+        spread: 0,
+        color,
+    };
 }
 
 /// Whether glyph outlines are hinted to the pixel grid: not on macOS, which doesn't hint
