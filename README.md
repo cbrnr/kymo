@@ -113,7 +113,9 @@ Uninstall Kymo from **Settings → Apps**. The uninstaller asks whether to also 
 
 ### Linux
 
-On Arch Linux and its derivatives, install the [`kymo`](https://aur.archlinux.org/packages/kymo) package from the AUR, for example with `paru -S kymo`.
+On Arch Linux and its derivatives, install the [`kymo`](https://aur.archlinux.org/packages/kymo) package from the AUR, for example with `yay -S kymo` or `paru -S kymo`.
+
+On NixOS or with Nix, there is an unofficial [Nix flake](https://github.com/DerAndereJohannes/kymo-nix).
 
 On other distributions, download `kymo-<version>-linux-x86_64.tar.gz` (or `-linux-arm64.tar.gz`), extract it, and run the included install script:
 
