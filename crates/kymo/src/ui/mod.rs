@@ -16,6 +16,7 @@ pub mod readout;
 pub mod scrollbar;
 pub mod settings;
 pub mod status;
+pub mod stepper;
 pub mod theme;
 pub mod types;
 
