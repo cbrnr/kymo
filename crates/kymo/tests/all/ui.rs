@@ -2165,8 +2165,8 @@ fn a_channels_menu_shows_on_its_row_hovered_or_selected() {
     assert!(contrast(&mut harness, away) > 40);
 }
 
-/// A good channel's Bad toggle shows only while its row is hovered or selected, a bad one's
-/// always. A channel's menu marks it, or the channels selected with it, bad or good, saying
+/// A good channel's Bad toggle shows only while its row is hovered, selected or not, a bad
+/// one's always. A channel's menu marks it, or the channels selected with it, bad or good, saying
 /// how many it marks.
 #[test]
 fn bad_toggles_show_where_they_act_and_menus_mark_bad() {
@@ -2192,7 +2192,7 @@ fn bad_toggles_show_where_they_act_and_menus_mark_bad() {
     let row = harness.get_by_label("Show A2").rect().center() + egui::vec2(60.0, 0.0);
     assert!(contrast(&mut harness, row) > 40);
     click_in_list(&mut harness, Role::Label, "A2");
-    assert!(contrast(&mut harness, away) > 40);
+    assert!(contrast(&mut harness, away) < 5);
     harness.key_press(Key::Escape);
     harness.run_steps(2);
     assert!(viewer(&harness).view().selected().is_empty());
