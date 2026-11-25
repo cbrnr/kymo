@@ -1203,7 +1203,13 @@ fn channel_list(
     let mut last_bottom = f32::NEG_INFINITY;
     // A solid scroll bar, which egui makes room for while the list scrolls: a floating one
     // lies over the rows' ends and takes the clicks meant for the types' menus.
-    let scroll = std::mem::replace(&mut ui.spacing_mut().scroll, ScrollStyle::solid());
+    // Its handle shows whenever the list scrolls, not only under the pointer, as its room is
+    // taken either way.
+    let solid = ScrollStyle {
+        dormant_handle_opacity: ScrollStyle::solid().active_handle_opacity,
+        ..ScrollStyle::solid()
+    };
+    let scroll = std::mem::replace(&mut ui.spacing_mut().scroll, solid);
     // Below the rows, always there, so the list keeps its height as channels are selected.
     egui::Panel::bottom("selection bar")
         .resizable(false)
@@ -1231,17 +1237,11 @@ fn channel_list(
                     stripe(ui, rect);
                 }
                 let pointed = ui.rect_contains_pointer(rect);
-                if let Item::Channel(id, _, _) = items[i] {
-                    // A tint under the pointer, as a click anywhere on the row selects it.
-                    let visuals = ui.visuals();
-                    if view.is_selected(id) {
-                        let fill = visuals.selection.bg_fill.gamma_multiply(0.4);
-                        ui.painter().rect_filled(rect, 0.0, fill);
-                    }
-                    if pointed {
-                        let fill = visuals.widgets.hovered.weak_bg_fill;
-                        ui.painter().rect_filled(rect, 0.0, fill);
-                    }
+                if let Item::Channel(id, _, _) = items[i]
+                    && view.is_selected(id)
+                {
+                    let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.4);
+                    ui.painter().rect_filled(rect, 0.0, fill);
                 }
                 // What is left past the row's right edge is clipped.
                 let mut row = ui.new_child(

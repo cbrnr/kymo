@@ -392,40 +392,55 @@ fn bad_marks_undo_and_redo() {
 }
 
 /// A click anywhere on a row of the channel list selects it, and takes the only selected row
-/// out of the selection again; the selected channels' names in the traces are on the
-/// selection's fill. A row's checkbox says on hover what a click does.
+/// out of the selection again; a selected row shows it under the pointer too, and the names
+/// beside the traces don't show the selection. A row's checkbox says on hover what a click
+/// does.
 #[test]
-fn a_click_on_the_selected_row_deselects_it_and_traces_mark_the_selection() {
+fn a_click_on_the_selected_row_deselects_it() {
     use egui::accesskit::Role;
     let file = typed_preset();
     let mut harness = fonts_window(file.path(), options());
     ready(&mut harness);
     let layout = viewer(&harness).layout().unwrap();
     let rows = viewer(&harness).view().rows() as f32;
-    // In A2's name row, right of its name, where only the fill can be.
-    let spot = egui::pos2(
+    // A2's name beside the traces, right of the name; in its row of the list, between the
+    // name and the Bad toggle.
+    let name_spot = egui::pos2(
         layout.names.right() - 6.0,
         layout.names.top() + 1.5 * layout.names.height() / rows,
     );
-    let pixel = |h: &mut Harness<'_, KymoApp>| {
-        hover(h, egui::pos2(900.0, 650.0));
+    // Where the list has scrolled to, and the pointer on the row: below and right of the
+    // spot, so the pointer drawn there doesn't cover it.
+    let row_spot = |h: &Harness<'_, KymoApp>| {
+        h.get_by_label("Show A2").rect().center() + egui::vec2(40.0, 0.0)
+    };
+    let on_row = egui::vec2(4.0, 6.0);
+    let away = egui::pos2(900.0, 650.0);
+    // The pixels at both spots, the pointer at `pointer` (on A2's row without one).
+    let pixels = |h: &mut Harness<'_, KymoApp>, pointer: Option<egui::Pos2>| {
+        let row_spot = row_spot(h);
+        hover(h, pointer.unwrap_or(row_spot + on_row));
         h.run_steps(2);
         let ppp = h.ctx.pixels_per_point();
         let image = h.render().unwrap();
-        image
-            .get_pixel((spot.x * ppp) as u32, (spot.y * ppp) as u32)
-            .0
+        let at = |p: egui::Pos2| image.get_pixel((p.x * ppp) as u32, (p.y * ppp) as u32).0;
+        (at(name_spot), at(row_spot))
     };
-    let plain = pixel(&mut harness);
+    let (name, row) = pixels(&mut harness, Some(away));
+    let (_, hovered) = pixels(&mut harness, None);
     click_in_list(&mut harness, Role::Label, "A2");
     assert_eq!(
         viewer(&harness).view().selected(),
         [kymo_core::ChannelId(1)]
     );
-    assert_ne!(pixel(&mut harness), plain);
+    let (selected_name, selected_row) = pixels(&mut harness, Some(away));
+    assert_eq!(selected_name, name);
+    assert_ne!(selected_row, row);
+    let (_, selected_hovered) = pixels(&mut harness, None);
+    assert_ne!(selected_hovered, hovered);
     click_in_list(&mut harness, Role::Label, "A2");
     assert!(viewer(&harness).view().selected().is_empty());
-    assert_eq!(pixel(&mut harness), plain);
+    assert_eq!(pixels(&mut harness, Some(away)), (name, row));
     // In a larger selection a click selects the row alone, as ever.
     click_in_list(&mut harness, Role::Label, "A1");
     harness

@@ -1477,23 +1477,12 @@ impl Viewer {
             self.draw_trace_dots(&overlay, traces, channel, &[time], size_px[0], visuals);
         }
 
-        // Channel names, centered on their rows, shortened in the middle where too long;
-        // selected ones on the channel list's selection fill, as the selection acts on them
-        // (scaling over one scales them all).
+        // Channel names, centered on their rows, shortened in the middle where too long.
         let names_painter = painter.with_clip_rect(names);
         let name_room = self.name_room;
         let height = area.height;
-        let selection = visuals.selection.bg_fill.gamma_multiply(0.4);
-        let name_height = ui.fonts_mut(|f| f.row_height(&body)) + 2.0;
         for (i, &channel) in self.view.visible_rows().zip(self.view.visible_channels()) {
             let y = traces.top() + self.view.y_of_row(i as f64 + 0.5, height) as f32;
-            if self.view.is_selected(channel) {
-                let rect = Rect::from_x_y_ranges(
-                    names.left() + NAME_PADDING / 2.0..=names.right() - NAME_PADDING / 2.0,
-                    y - name_height / 2.0..=y + name_height / 2.0,
-                );
-                names_painter.rect_filled(rect, 3.0, selection);
-            }
             let color = if self.hover.channel == Some(channel) && !self.view.is_bad(channel) {
                 visuals.strong_text_color()
             } else {
