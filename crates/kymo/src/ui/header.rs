@@ -6,7 +6,7 @@ use eframe::egui::{
     self, Align, Checkbox, Color32, CursorIcon, FontId, Frame, Id, Label, Layout, Margin, Response,
     RichText, ScrollArea, Sense, TextStyle, Ui, UiBuilder, WidgetText, style::ScrollStyle, vec2,
 };
-use kymo_core::{ChannelId, ChannelKind, Stream, StreamContent};
+use kymo_core::{ChannelId, ChannelKind, GridId, Stream, StreamContent, Unit};
 
 use crate::action::Action;
 use crate::annotations::{AnnotationColors, Entry, Legend};
@@ -972,12 +972,15 @@ struct GroupRate {
 
 fn group_rate(document: &Document, view: &ViewState, group: &Group) -> GroupRate {
     let rec = &document.recording;
-    let grids: Vec<&kymo_core::Grid> = view
-        .order()
-        .iter()
-        .filter(|&&c| view.group_of(c) == *group)
-        .map(|&c| rec.grid(rec.channel(c).grid))
-        .collect();
+    // Each of the group's grids once (a recording has few), so each rate is written once.
+    let mut ids: Vec<GridId> = Vec::new();
+    for &c in view.order() {
+        let id = rec.channel(c).grid;
+        if !ids.contains(&id) && view.group_of(c) == *group {
+            ids.push(id);
+        }
+    }
+    let grids: Vec<&kymo_core::Grid> = ids.into_iter().map(|id| rec.grid(id)).collect();
     let Some(first) = grids.first() else {
         return GroupRate {
             list: String::new(),
@@ -985,10 +988,11 @@ fn group_rate(document: &Document, view: &ViewState, group: &Group) -> GroupRate
             mixed: false,
         };
     };
-    if grids.iter().all(|g| grid_rate(g) == grid_rate(first)) {
+    let rate = grid_rate(first);
+    if grids[1..].iter().all(|g| grid_rate(g) == rate) {
         return GroupRate {
-            list: grid_rate(first),
-            full: grid_rate(first),
+            list: rate.clone(),
+            full: rate,
             mixed: false,
         };
     }
@@ -1009,20 +1013,27 @@ type Group = (Option<usize>, ChannelKind);
 /// Per type row (group), the unit its channels share as shown (see [`display_unit`]; empty
 /// for none), or `None` where they differ: then each channel's row shows its own.
 fn shared_units(document: &Document, view: &ViewState) -> HashMap<Group, Option<String>> {
-    let mut shared: HashMap<Group, Option<String>> = HashMap::new();
+    // With the unit the group's first channel stores: a group's channels share a type, so
+    // one stored in that unit shows it as the first does, and only others need theirs.
+    let mut shared: HashMap<Group, (&Unit, Option<String>)> = HashMap::new();
     for (c, channel) in document.recording.channels().iter().enumerate() {
         let id = ChannelId(c as u32);
-        let unit = display_unit(view.kind_of(id), &channel.unit).0;
-        shared
-            .entry(view.group_of(id))
-            .and_modify(|s| {
-                if s.as_ref() != Some(&unit) {
-                    *s = None;
+        let shown = || display_unit(view.kind_of(id), &channel.unit).0;
+        match shared.get_mut(&view.group_of(id)) {
+            Some((first, unit)) => {
+                if **first != channel.unit && unit.as_ref().is_some_and(|u| *u != shown()) {
+                    *unit = None;
                 }
-            })
-            .or_insert(Some(unit));
+            }
+            None => {
+                shared.insert(view.group_of(id), (&channel.unit, Some(shown())));
+            }
+        }
     }
     shared
+        .into_iter()
+        .map(|(group, (_, unit))| (group, unit))
+        .collect()
 }
 
 /// One row of the channel list.
