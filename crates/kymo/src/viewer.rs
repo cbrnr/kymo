@@ -48,7 +48,8 @@ const SIDEBAR_MAX_FRACTION: f32 = 0.5;
 const NAMES_MAX_FRACTION: f32 = 0.3;
 const NAMES_MAX_EMS: f32 = 10.0;
 /// Narrowest and widest the names column can be dragged, in ems (or as narrow as the names
-/// fit, where that is less) and as a fraction of the trace region.
+/// fit, where that is less) and as a fraction of the trace region (or as wide as the names
+/// fit, where that is less).
 const NAMES_DRAG_MIN_EMS: f32 = 3.0;
 const NAMES_DRAG_MAX_FRACTION: f32 = 0.5;
 /// How far from the boundary between names and traces it can be grabbed, in points.
@@ -1148,12 +1149,13 @@ impl Viewer {
         let small = TextStyle::Small.resolve(ui.style());
         let body = TextStyle::Body.resolve(ui.style());
         let bar = scrollbar::THICKNESS;
-        let fitted =
-            self.names_width(ui, &body).min(NAMES_MAX_EMS * body.size) + 2.0 * NAME_PADDING;
+        let widest = self.names_width(ui, &body);
+        let fitted = widest.min(NAMES_MAX_EMS * body.size) + 2.0 * NAME_PADDING;
         let names_width = match self.names_dragged {
+            // No wider than all names need, as more room would show nothing more.
             Some(width) => width
                 .max((NAMES_DRAG_MIN_EMS * body.size + 2.0 * NAME_PADDING).min(fitted))
-                .min(full.width() * NAMES_DRAG_MAX_FRACTION),
+                .min((widest + 2.0 * NAME_PADDING).min(full.width() * NAMES_DRAG_MAX_FRACTION)),
             None => fitted.min(full.width() * NAMES_MAX_FRACTION),
         };
         // The room for a name: from the column's width before the trace area's edge is
