@@ -6,7 +6,7 @@ use eframe::egui::{self, Align, Label, Layout, RichText, TextStyle};
 
 use crate::action::Action;
 use crate::document::{GridSummary, InfoRow, Summary, info_text};
-use crate::ui::{Overlay, window_title};
+use crate::ui::{Overlay, theme, window_title};
 
 /// What the Copy button is named, also for tests.
 pub const COPY: &str = "Copy";
@@ -41,15 +41,22 @@ pub fn info_window(ctx: &egui::Context, open: &mut bool, path: &Path, summary: &
             .fold(0.0, f32::max)
     });
     Overlay::RecordingInfo.center_on_open(ctx, *open);
-    let title = window_title(Action::RecordingInfo.label().trim_end_matches('…'));
+    let title = window_title(
+        ctx,
+        Overlay::RecordingInfo,
+        Action::RecordingInfo.label().trim_end_matches('…'),
+    );
     egui::Window::new(title)
         .id(Overlay::RecordingInfo.id())
+        .title_frame(theme::title_frame(ctx))
         .open(open)
         .collapsible(false)
         // As wide as dragged, and as tall as its rows up to most of the screen, where they
         // scroll: a window's own scroll area (`vscroll`) keeps it at a fixed height.
         .resizable([true, false])
         .default_width(640.0)
+        // Narrower, the keys and their values have hardly any room left.
+        .min_width(420.0)
         .show(ctx, |ui| {
             let max_height = ui.ctx().content_rect().height() * 0.7;
             egui::ScrollArea::vertical()

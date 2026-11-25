@@ -467,28 +467,33 @@ impl KymoApp {
             Later,
         }
         let mut answer = None;
-        let modal = egui::Modal::new(egui::Id::unique("kymo update")).show(ctx, |ui| {
-            ui.set_max_width(420.0);
-            ui.heading("Update Available");
-            ui.label(format!(
-                "Kymo {} is available; you have {}. Download opens its page on GitHub.",
-                release.version,
-                update::current()
-            ));
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("Download").clicked() {
-                    answer = Some(Answer::Download);
-                }
-                if ui.button("Skip This Version").clicked() {
-                    answer = Some(Answer::Skip);
-                }
-                if ui.button("Later").clicked() {
-                    answer = Some(Answer::Later);
-                }
-            });
-        });
-        if answer.is_none() && modal.should_close() {
+        let modal = theme::modal(
+            ctx,
+            egui::Id::unique("kymo update"),
+            "Update Available",
+            320.0,
+            |ui| {
+                ui.label(format!(
+                    "Kymo {} is available; you have {}. Download opens its page on GitHub.",
+                    release.version,
+                    update::current()
+                ));
+                ui.add_space(8.0);
+                // The default, Download, at the right edge.
+                theme::button_row(ui, |ui| {
+                    if ui.button("Download").clicked() {
+                        answer = Some(Answer::Download);
+                    }
+                    if ui.button("Skip This Version").clicked() {
+                        answer = Some(Answer::Skip);
+                    }
+                    if ui.button("Later").clicked() {
+                        answer = Some(Answer::Later);
+                    }
+                });
+            },
+        );
+        if answer.is_none() && modal.close {
             answer = Some(Answer::Later);
         }
         match answer {
@@ -1292,24 +1297,30 @@ impl KymoApp {
             Cancel,
         }
         let mut answer = None;
-        let modal = egui::Modal::new(egui::Id::unique("kymo unsaved changes")).show(ctx, |ui| {
-            ui.set_max_width(360.0);
-            ui.heading(format!("Save the changes to the annotations of {name}?"));
-            ui.label("They are lost if you don't save them.");
-            ui.add_space(8.0);
-            ui.horizontal(|ui| {
-                if ui.button("Save…").clicked() {
-                    answer = Some(Answer::Save);
-                }
-                if ui.button("Don't Save").clicked() {
-                    answer = Some(Answer::DontSave);
-                }
-                if ui.button("Cancel").clicked() {
-                    answer = Some(Answer::Cancel);
-                }
-            });
-        });
-        if answer.is_none() && modal.should_close() {
+        let modal = theme::modal(
+            ctx,
+            egui::Id::unique("kymo unsaved changes"),
+            "Unsaved Changes",
+            320.0,
+            |ui| {
+                ui.label(format!("Save the changes to the annotations of {name}?"));
+                ui.label("They are lost if you don't save them.");
+                ui.add_space(8.0);
+                theme::button_row(ui, |ui| {
+                    // From the right: Save…, Cancel, then Don't Save, as macOS orders them.
+                    if ui.button("Save…").clicked() {
+                        answer = Some(Answer::Save);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        answer = Some(Answer::Cancel);
+                    }
+                    if ui.button("Don't Save").clicked() {
+                        answer = Some(Answer::DontSave);
+                    }
+                });
+            },
+        );
+        if answer.is_none() && modal.close {
             answer = Some(Answer::Cancel);
         }
         let Some(answer) = answer else {
@@ -1332,14 +1343,12 @@ impl KymoApp {
             return;
         };
         let mut ok = false;
-        let modal = egui::Modal::new(egui::Id::unique("kymo notice")).show(ctx, |ui| {
-            ui.set_max_width(420.0);
-            ui.heading(title.as_str());
+        let modal = theme::modal(ctx, egui::Id::unique("kymo notice"), title, 360.0, |ui| {
             ui.label(text.as_str());
             ui.add_space(8.0);
-            ok = ui.button("OK").clicked();
+            theme::button_row(ui, |ui| ok = ui.button("OK").clicked());
         });
-        if ok || modal.should_close() {
+        if ok || modal.close {
             self.notice = None;
         }
     }

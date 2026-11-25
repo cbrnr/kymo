@@ -15,7 +15,7 @@ use crate::types::{TypeSet, TypeSettings};
 use crate::ui::color::{Choice, picker, swatch, swatch_button};
 use crate::ui::menus::check_item;
 use crate::ui::palette::type_color;
-use crate::ui::{Overlay, window_title};
+use crate::ui::{Overlay, theme, window_title};
 
 /// The window's title, and the button that opens it.
 pub const CHANNEL_TYPES: &str = "Channel Types";
@@ -498,8 +498,9 @@ pub fn channel_types_window(
     let listed = listed_types(types, recording);
     let columns = Columns::of(ctx, &listed);
     Overlay::ChannelTypes.center_on_open(ctx, *open);
-    egui::Window::new(window_title(CHANNEL_TYPES))
+    egui::Window::new(window_title(ctx, Overlay::ChannelTypes, CHANNEL_TYPES))
         .id(Overlay::ChannelTypes.id())
+        .title_frame(theme::title_frame(ctx))
         .open(open)
         .collapsible(false)
         .resizable(false)

@@ -4,7 +4,7 @@ use eframe::egui::text::{CCursor, CCursorRange};
 use eframe::egui::{self, Key, TextEdit};
 
 use super::axis::parse_time;
-use super::{Overlay, window_title};
+use super::{Overlay, theme, window_title};
 use crate::action::Action;
 
 /// What the window's field holds between frames.
@@ -50,9 +50,14 @@ pub fn go_to_window(ctx: &egui::Context, open: &mut bool, field: &mut GoToField)
             .sum()
             .x;
     Overlay::GoToTime.center_on_open(ctx, *open);
-    let title = window_title(Action::GoToTime.label().trim_end_matches('…'));
+    let title = window_title(
+        ctx,
+        Overlay::GoToTime,
+        Action::GoToTime.label().trim_end_matches('…'),
+    );
     egui::Window::new(title)
         .id(Overlay::GoToTime.id())
+        .title_frame(theme::title_frame(ctx))
         .open(open)
         .collapsible(false)
         .resizable(false)

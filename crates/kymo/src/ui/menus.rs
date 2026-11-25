@@ -11,7 +11,7 @@ use crate::action::Action;
 use crate::keymap::Platform;
 use crate::menu::{Item, SystemItem, menu_bar};
 use crate::shortcuts::overview;
-use crate::ui::{Overlay, window_title};
+use crate::ui::{Overlay, theme, window_title};
 
 /// What a menu shows for an action: whether it can run now, and its checkmark if it has
 /// one.
@@ -211,8 +211,9 @@ pub fn shortcuts_window(ctx: &egui::Context, open: &mut bool, platform: Platform
     let scroll = &style.spacing.scroll;
     let room = (scroll.bar_width + scroll.bar_inner_margin).ceil();
     let margin = style.spacing.window_margin;
-    // The title bar keeps the usual margins, so its close button stays in the corner.
-    let title_frame = egui::Frame::window(&style);
+    // The title bar keeps its own [`theme::TITLE_MARGIN`], so its close button stays in the
+    // corner; the rows get the window's margin, the right one made the scroll bar's room.
+    let title_frame = theme::title_frame(ctx);
     let frame = title_frame.inner_margin(egui::Margin {
         right: room as i8,
         ..margin
@@ -221,7 +222,8 @@ pub fn shortcuts_window(ctx: &egui::Context, open: &mut bool, platform: Platform
     let stroke = 2.0 * style.visuals.window_stroke.width;
     let outer = width + f32::from(margin.left) + room + stroke;
     Overlay::Shortcuts.center_on_open(ctx, *open);
-    egui::Window::new(window_title(Action::Shortcuts.label()))
+    let title = window_title(ctx, Overlay::Shortcuts, Action::Shortcuts.label());
+    egui::Window::new(title)
         .id(Overlay::Shortcuts.id())
         .frame(frame)
         .title_frame(title_frame)
@@ -270,8 +272,9 @@ const COLUMN_GAP: f32 = 32.0;
 /// The About window (Windows and Linux; macOS uses the system's About panel).
 pub fn about_window(ctx: &egui::Context, open: &mut bool) {
     Overlay::About.center_on_open(ctx, *open);
-    egui::Window::new(window_title(Action::About.label()))
+    egui::Window::new(window_title(ctx, Overlay::About, Action::About.label()))
         .id(Overlay::About.id())
+        .title_frame(theme::title_frame(ctx))
         .open(open)
         .collapsible(false)
         .resizable(false)

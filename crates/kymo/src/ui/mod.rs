@@ -21,7 +21,7 @@ pub mod stepper;
 pub mod theme;
 pub mod types;
 
-use eframe::egui::{Button, Color32, Context, FontId, IntoAtoms, Label, RichText};
+use eframe::egui::{self, Button, Color32, Context, FontId, IntoAtoms, Label, RichText};
 
 /// Corner radius of buttons in a line of text, as [`text_button`] makes them.
 pub const TEXT_BUTTON_RADIUS: f32 = 4.0;
@@ -94,10 +94,44 @@ pub fn hint_text(text: &str) -> RichText {
     RichText::new(text).size(HINT_SIZE)
 }
 
-/// `text` as a window's title: as large as body text, as the system's titles are (egui's
-/// are headings), in the interface's font.
-pub fn window_title(text: &str) -> RichText {
+/// `text` as the text of a window's title: as large as body text, as the system's titles
+/// are (egui's are headings), in the interface's font.
+pub fn title_text(text: &str) -> RichText {
     RichText::new(text).text_style(eframe::egui::TextStyle::Body)
+}
+
+/// `text` as the title of `overlay`'s window, which has a close button. egui centers a title
+/// between the left edge and the close button, so the title would sit off the window's
+/// center by half the button; an empty space as wide as the button before the text puts it
+/// back. Where the window (as wide as last frame) has no room for that space, it is left
+/// out, so the title is not cut short for it.
+pub fn window_title(ctx: &egui::Context, overlay: Overlay, text: &str) -> egui::Atoms<'static> {
+    let style = ctx.global_style();
+    // As tall as egui's close button, which is as tall as a heading's row.
+    let size = ctx.fonts_mut(|f| f.row_height(&egui::TextStyle::Heading.resolve(&style)));
+    let text_width = ctx.fonts_mut(|f| {
+        let font = egui::TextStyle::Body.resolve(&style);
+        f.layout_no_wrap(text.to_owned(), font, Color32::PLACEHOLDER)
+            .size()
+            .x
+    });
+    // The title bar's atoms: a grow, the space, the text, a grow and the close button.
+    let needed = text_width + 2.0 * size + 4.0 * style.spacing.item_spacing.x;
+    let room = ctx.memory(|m| m.area_rect(overlay.id())).map(|rect| {
+        rect.width()
+            - f32::from(theme::TITLE_MARGIN.left)
+            - f32::from(theme::TITLE_MARGIN.right)
+            - 2.0 * style.visuals.window_stroke.width
+    });
+    let mut atoms = egui::Atoms::default();
+    if room.is_none_or(|room| room >= needed) {
+        atoms.push_right(egui::Atom::custom(
+            egui::IdSalt::new("title balance"),
+            egui::Vec2::splat(size),
+        ));
+    }
+    atoms.push_right(title_text(text));
+    atoms
 }
 
 /// The windows over the recording, which Esc and ⌘W close, the one in front first.
