@@ -487,6 +487,7 @@ fn legend_list(
                 Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
             let response = ui.add(checkbox);
             accessible_label(ui, &response, format!("Show {name}"));
+            let response = visibility_hint(response, checked, name);
             if response.changed() {
                 legend.set_all_shown(checked);
             }
@@ -605,6 +606,7 @@ fn legend_list(
                     let mut checked = shown;
                     let response = ui.add(Checkbox::without_text(&mut checked));
                     accessible_label(ui, &response, format!("Show {named}"));
+                    let response = visibility_hint(response, checked, &named);
                     if response.changed() {
                         legend.set_shown(stream, &description, checked);
                     }
@@ -766,6 +768,7 @@ fn legend_stream_row(row: &mut Ui, legend: &mut Legend, group: LegendGroup<'_>) 
         let checkbox = Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
         let response = ui.add(checkbox);
         accessible_label(ui, &response, format!("Show {name}"));
+        let response = visibility_hint(response, checked, &name);
         if response.changed() {
             legend.set_stream_shown(stream, checked);
         }
@@ -1085,13 +1088,21 @@ fn stream_name(stream: &Stream) -> String {
     }
 }
 
+/// A visibility checkbox's hover text: what a click does to `name` ("Hide A1", "Show EEG
+/// channels"), `shown` being whether it is shown (all of it, for a group).
+fn visibility_hint(response: Response, shown: bool, name: &str) -> Response {
+    let verb = if shown { "Hide" } else { "Show" };
+    response.on_hover_text(format!("{verb} {name}"))
+}
+
 /// All channels in the view's order, under their types (see [`kind_row`]), drawing only the
 /// rows in view, in columns as wide as the widest entry of any channel. Per channel:
-/// whether it is shown, its name (a click scrolls the traces to it), its unit as the
-/// readout shows values (µV for EEG whatever the file stores), and a Bad toggle, which a
-/// good channel's row shows only while hovered; its type and rate are in the
-/// rows above it. Its menu marks it (or the selected channels) bad or good too. A list too narrow for all of it narrows the units and
-/// names (shortened in the middle) and then leaves out the unit (see [`Columns::fit`]);
+/// whether it is shown, its name, its unit as the readout shows values (µV for EEG
+/// whatever the file stores), and a Bad toggle, which a good channel's row shows only while
+/// hovered; its type and rate are in the rows above it. A click anywhere else on the row
+/// selects it (scrolling the traces to it if it is off screen). A list too narrow for all
+/// of it narrows the units and names (shortened in the middle) and then leaves out the unit
+/// (see [`Columns::fit`]);
 /// hovering a row whose text is shortened or left out shows it all, its type and rate too,
 /// as does a channel whose type's channels differ in rate. Rows under a type or stream are
 /// a level in.
@@ -1198,13 +1209,19 @@ fn channel_list(
                 if i % 2 == 1 {
                     stripe(ui, rect);
                 }
-                if let Item::Channel(id, _, _) = items[i]
-                    && view.is_selected(id)
-                {
-                    let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.4);
-                    ui.painter().rect_filled(rect, 0.0, fill);
-                }
                 let pointed = ui.rect_contains_pointer(rect);
+                if let Item::Channel(id, _, _) = items[i] {
+                    // A tint under the pointer, as a click anywhere on the row selects it.
+                    let visuals = ui.visuals();
+                    if view.is_selected(id) {
+                        let fill = visuals.selection.bg_fill.gamma_multiply(0.4);
+                        ui.painter().rect_filled(rect, 0.0, fill);
+                    }
+                    if pointed {
+                        let fill = visuals.widgets.hovered.weak_bg_fill.gamma_multiply(0.5);
+                        ui.painter().rect_filled(rect, 0.0, fill);
+                    }
+                }
                 // What is left past the row's right edge is clipped.
                 let mut row = ui.new_child(
                     UiBuilder::new()
@@ -1311,6 +1328,7 @@ fn channel_list(
                 let mut shown = view.is_shown(id);
                 let response = ui.add(Checkbox::without_text(&mut shown));
                 accessible_label(ui, &response, format!("Show {name}"));
+                let response = visibility_hint(response, shown, name);
                 if response.changed() {
                     view.set_shown(id, shown);
                 }
@@ -1335,17 +1353,15 @@ fn channel_list(
                 if alone && alone_mark(ui, response.rect, platform, id) {
                     view.rejoin(&[id]);
                 }
-                let hover = match (&full, shown) {
-                    (Some(full), true) => Some(format!("{full}\n\nShow in Traces")),
-                    (Some(full), false) => Some(full.clone()),
-                    (None, true) => Some("Show in Traces".to_owned()),
-                    (None, false) => None,
-                };
-                if let Some(hover) = hover {
-                    response = response.on_hover_text(hover);
+                if let Some(full) = &full {
+                    response = response.on_hover_text(full);
                 }
-                if shown {
-                    response = response.on_hover_cursor(CursorIcon::PointingHand);
+                // The whole row is one target: a click selects it alone (or takes the only
+                // selected row out again), ⌘-click adds or takes it out, ⇧-click selects the
+                // rows from the last clicked; each scrolls the traces to it if it is off
+                // screen.
+                if response.hovered() || row_response.hovered() {
+                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                 }
                 if response.clicked() || row_response.clicked() {
                     let modifiers = ui.input(|i| i.modifiers);
@@ -1353,16 +1369,12 @@ fn channel_list(
                         view.toggle_selected(id);
                     } else if modifiers.shift {
                         view.select_range(&channel_rows, id);
+                    } else if view.selected() == [id] {
+                        view.clear_selection();
                     } else {
-                        // The only selected row: a click takes it out again, still
-                        // scrolling to it.
-                        if view.selected() == [id] {
-                            view.clear_selection();
-                        } else {
-                            view.select(id);
-                        }
-                        view.scroll_to(id);
+                        view.select(id);
                     }
+                    view.reveal(id);
                 }
 
                 // "Bad" on a bad channel's row; on a good one's only while it is hovered, as
@@ -1615,6 +1627,7 @@ fn stream_row(
     let checkbox = Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
     let response = ui.add(checkbox);
     accessible_label(ui, &response, format!("Show {name}"));
+    let response = visibility_hint(response, checked, &name);
     if response.changed() {
         view.set_stream_shown(s, checked);
     }
@@ -1793,6 +1806,7 @@ fn kind_row(
     let checkbox = Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
     let response = ui.add(checkbox);
     accessible_label(ui, &response, format!("Show {label}"));
+    let response = visibility_hint(response, checked, &label);
     if response.changed() {
         view.set_group_shown(stream, &kind, checked);
     }

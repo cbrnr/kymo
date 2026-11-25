@@ -862,6 +862,22 @@ impl ViewState {
         }
     }
 
+    /// Scrolls just far enough that a shown channel's row is wholly on screen: it becomes
+    /// the first row if it was above, the last if below; nothing moves if it is on screen.
+    /// Returns `false` for a hidden channel.
+    pub fn reveal(&mut self, channel: ChannelId) -> bool {
+        let Some(row) = self.row_of(channel) else {
+            return false;
+        };
+        let (row, rows) = (row as f64, self.rows() as f64);
+        if row < self.top {
+            self.set_top(row);
+        } else if row + 1.0 > self.top + rows {
+            self.set_top(row + 1.0 - rows);
+        }
+        true
+    }
+
     /// Scrolls so that row `top` (fractional for smooth scrolling) is first on screen.
     pub fn set_top(&mut self, top: f64) {
         if !top.is_nan() {

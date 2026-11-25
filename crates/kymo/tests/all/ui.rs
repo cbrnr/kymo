@@ -347,8 +347,9 @@ fn clicking_a_name_toggles_bad() {
     assert!(!viewer(&harness).view().is_bad(a2));
 }
 
-/// A click on the only selected row of the channel list takes it out of the selection; the
-/// selected channels' names in the traces are on the selection's fill.
+/// A click anywhere on a row of the channel list selects it, and takes the only selected row
+/// out of the selection again; the selected channels' names in the traces are on the
+/// selection's fill. A row's checkbox says on hover what a click does.
 #[test]
 fn a_click_on_the_selected_row_deselects_it_and_traces_mark_the_selection() {
     use egui::accesskit::Role;
@@ -392,6 +393,21 @@ fn a_click_on_the_selected_row_deselects_it_and_traces_mark_the_selection() {
         viewer(&harness).view().selected(),
         [kymo_core::ChannelId(1)]
     );
+    // Beside the name, too.
+    let name = harness.get_by_role_and_label(Role::Label, "A1").rect();
+    click(
+        &mut harness,
+        egui::pos2(name.right() + 8.0, name.center().y),
+    );
+    harness.run_steps(2);
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(0)]
+    );
+    // A checkbox says what a click does.
+    let checkbox = harness.get_by_label("Show A1").rect().center();
+    hover(&mut harness, checkbox);
+    assert!(tooltip(&mut harness, "Hide A1"));
 }
 
 /// The channel list shows units as the readout does: µV for EEG, mV for sEEG, whatever the
@@ -1267,20 +1283,24 @@ fn the_channel_list_shows_hides_and_marks_bad() {
     click_in_list(&mut harness, Role::Button, "ECG bad");
     assert!(!viewer(&harness).view().is_bad(ecg));
 
-    // A click on a name scrolls the traces to it: three rows of five.
+    // A click on a row scrolls the traces to it if it is off screen, as little as it
+    // takes: three rows of five.
     for _ in 0..2 {
         harness.key_press_modifiers(command() | Modifiers::SHIFT, Key::Minus);
         harness.step();
     }
     assert_eq!(viewer(&harness).view().rows(), 3);
+    click_in_list(&mut harness, Role::Label, "Status");
+    assert_eq!(viewer(&harness).view().top(), 2.0);
     click_in_list(&mut harness, Role::Label, "EOG L");
     assert_eq!(viewer(&harness).view().top(), 2.0);
-    click_in_list(&mut harness, Role::Label, "A2");
-    assert_eq!(viewer(&harness).view().top(), 1.0);
+    click_in_list(&mut harness, Role::Label, "A1");
+    assert_eq!(viewer(&harness).view().top(), 0.0);
     // A type's name scrolls to its first shown channel.
     click_in_list(&mut harness, Role::Label, "EOG");
     assert_eq!(viewer(&harness).view().top(), 2.0);
     click_in_list(&mut harness, Role::Label, "A2");
+    assert_eq!(viewer(&harness).view().top(), 1.0);
     // A hidden channel's name doesn't scroll.
     click_in_list(&mut harness, Role::CheckBox, "Show A1");
     click_in_list(&mut harness, Role::Label, "A1");
@@ -7538,7 +7558,7 @@ fn has_selection(harness: &Harness<'_, KymoApp>) -> bool {
 }
 
 /// Channels don't move: a drag on a name or a row's gray text moves nothing and selects no
-/// text, and a click on a name shows it in the traces. A stream's row starts with a small
+/// text, and a click on a name shows it in the traces if it is off screen. A stream's row starts with a small
 /// chevron, left of its checkbox.
 #[test]
 fn names_click_and_drag_nothing() {
@@ -7575,7 +7595,7 @@ fn names_click_and_drag_nothing() {
         harness.key_press_modifiers(command() | Modifiers::SHIFT, Key::Minus);
         harness.step();
     }
-    click_in_list(&mut harness, egui::accesskit::Role::Label, "EOG L");
+    click_in_list(&mut harness, egui::accesskit::Role::Label, "Status");
     assert_eq!(viewer(&harness).view().top(), 2.0);
 
     let file = streams_xdf();
