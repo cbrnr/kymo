@@ -311,8 +311,6 @@ struct Spreads {
     /// Per grid: whether its read has started.
     asked: Vec<bool>,
     read: Vec<Spread>,
-    /// Counts the spreads read.
-    revision: u64,
     channel: Option<(mpsc::Sender<Spread>, mpsc::Receiver<Spread>)>,
 }
 
@@ -347,7 +345,6 @@ impl Spreads {
         }
         while let Ok(read) = receiver.try_recv() {
             self.read.push(read);
-            self.revision += 1;
         }
     }
 }
@@ -611,7 +608,7 @@ impl Minimap {
             }
         }
         let texture_for = (signals.is_some(), visuals.dark_mode, background);
-        if marks_changed || self.texture_for != Some(texture_for) || self.texture.is_none() {
+        if marks_changed || self.texture_for != Some(texture_for) {
             self.texture_for = Some(texture_for);
             // Over signals, the annotations let them show through.
             let under = if signals.is_some() {

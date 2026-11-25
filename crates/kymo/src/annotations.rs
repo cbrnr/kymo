@@ -308,8 +308,8 @@ pub struct Marks {
     /// never overlap or touch; overlapping ones are merged. By color, span and first
     /// column, so bands of different colors that overlap blend the same in every frame.
     pub bands: Vec<Mark>,
-    /// Solid, one column wide: annotations without or with less than a pixel's duration. At most one
-    /// per column, color and span.
+    /// Solid, one column wide: annotations without or with less than a pixel's duration. At
+    /// most one per column, color and span.
     pub lines: Vec<Mark>,
     /// From left to right, never overlapping.
     pub labels: Vec<Label>,
@@ -602,7 +602,8 @@ pub fn spans_all(a: &AnnotationData) -> bool {
 }
 
 /// The pixel columns `a`'s mark covers on a trace area `width_px` (`> 0`) pixels wide that
-/// shows `span` seconds from `start`, and whether it is a line: one column, for annotations shorter than a pixel.
+/// shows `span` seconds from `start`, and whether it is a line: one column, for annotations
+/// shorter than a pixel.
 fn columns(start: f64, span: f64, a: &AnnotationData, width_px: u32) -> (Range<u32>, bool) {
     let width = f64::from(width_px);
     // As `ViewState::x_at`, to the bit.

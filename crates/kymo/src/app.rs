@@ -1145,7 +1145,8 @@ impl KymoApp {
     }
 
     /// Opens a file the system handed over (the first, if several) as a dropped one (see
-    /// [`take_dropped`](Self::take_dropped)). While a question, notice or update offer is shown, it waits.
+    /// [`take_dropped`](Self::take_dropped)). While a question, notice or update offer is
+    /// shown, it waits.
     fn take_opened(&mut self, ctx: &egui::Context) {
         let Some(inbox) = &self.opened else {
             return;

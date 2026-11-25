@@ -414,11 +414,11 @@ fn toggles_dc_removal_and_bad_channels() {
     view.set_dc_removed(true);
     assert!(view.dc_removed());
 
-    view.toggle_bad(ChannelId(2));
+    view.set_bad(ChannelId(2), true);
     assert_eq!(view.bad_channels().collect::<Vec<_>>(), [ChannelId(2)]);
-    view.toggle_bad(ChannelId(2));
+    view.set_bad(ChannelId(2), false);
     assert!(!view.is_bad(ChannelId(2)));
-    view.toggle_bad(ChannelId(99));
+    view.set_bad(ChannelId(99), true);
     assert_eq!(view.bad_channels().count(), 0, "not a channel");
 }
 
@@ -619,10 +619,10 @@ fn reveals_a_channel_by_scrolling_as_little_as_needed() {
 #[test]
 fn bad_channels_stay_bad_while_hidden() {
     let (_, mut view) = state();
-    view.toggle_bad(ChannelId(1));
+    view.set_bad(ChannelId(1), true);
     view.set_shown(ChannelId(1), false);
     assert!(view.is_bad(ChannelId(1)));
-    view.toggle_bad(ChannelId(1));
+    view.set_bad(ChannelId(1), false);
     view.set_shown(ChannelId(1), true);
     assert!(!view.is_bad(ChannelId(1)));
 }
@@ -1045,7 +1045,7 @@ fn channels_the_file_marks_bad_start_out_bad() {
         [ChannelId(2), ChannelId(6)]
     );
     // They are marked good like any other.
-    view.toggle_bad(ChannelId(2));
+    view.set_bad(ChannelId(2), false);
     assert_eq!(view.bad_channels().collect::<Vec<_>>(), [ChannelId(6)]);
 }
 

@@ -177,9 +177,9 @@ fn a_bar_stays_put_while_its_block_scrolls_and_leaves_with_it() {
 fn bad_rows_keep_it_and_hidden_ones_join_blocks() {
     use crate::kinds::Eeg;
     let (rec, mut view) = blocks();
-    view.toggle_bad(ChannelId(0));
+    view.set_bad(ChannelId(0), true);
     assert_eq!(placed(&rec, &view)[0], (Eeg, 0, 0.5));
-    view.toggle_bad(ChannelId(0));
+    view.set_bad(ChannelId(0), false);
     // Without the EOG rows the two EEG blocks are one, which keeps the bar at the top.
     view.set_shown(ChannelId(10), false);
     view.set_shown(ChannelId(11), false);

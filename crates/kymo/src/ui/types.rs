@@ -52,11 +52,6 @@ pub fn type_swatch(
     }
 }
 
-/// The width of a [`type_menu`] button in a row `height` high.
-pub fn menu_width(height: f32) -> f32 {
-    height
-}
-
 /// How a "⋯" button's dots are drawn when the pointer isn't on it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Dots {
@@ -67,12 +62,11 @@ pub enum Dots {
     Marked,
 }
 
-/// A "⋯" button `height` high, named `label` for screen readers, with `hover` as its
+/// A square "⋯" button `height` high, named `label` for screen readers, with `hover` as its
 /// tooltip, its dots drawn as `dots` says unless the pointer is on it or its menu is open
 /// (then strong). The caller opens its menu.
 pub fn dots_button(ui: &mut Ui, label: String, hover: String, dots: Dots, height: f32) -> Response {
-    let (rect, response) =
-        ui.allocate_exact_size(Vec2::new(menu_width(height), height), Sense::click());
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(height), Sense::click());
     label_for(ui, &response, label);
     let open = Popup::is_id_open(ui.ctx(), Popup::default_response_id(&response));
     let visuals = ui.visuals();
@@ -391,8 +385,8 @@ pub fn type_menu(
 /// A "⋯" button `height` high at the end of a channel's row, named "Options for {label}"
 /// for screen readers, its dots drawn as `dots` says: a menu for that channel alone (what
 /// acts on several is in the channel list's selection bar; no title, as it opens at the
-/// channel's row), with Mark as Bad or Mark as Good, Change Type To (see [`change_type_menu`]) and Scale With Type, enabled
-/// while it is scaled on its own.
+/// channel's row), with Mark as Bad or Mark as Good, Change Type To (see
+/// [`change_type_menu`]) and Scale With Type, enabled while it is scaled on its own.
 pub fn channel_menu(
     ui: &mut Ui,
     label: &str,

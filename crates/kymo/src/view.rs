@@ -821,12 +821,6 @@ impl ViewState {
         }
     }
 
-    pub fn toggle_bad(&mut self, channel: ChannelId) {
-        if !self.bad.remove(&channel) && (channel.0 as usize) < self.kinds.len() {
-            self.bad.insert(channel);
-        }
-    }
-
     /// Shows `rows` rows (at least 1, at most all), keeping the top row. Asking for all
     /// rows or more keeps a larger number chosen before, for when hidden channels return.
     pub fn set_rows(&mut self, rows: usize) {

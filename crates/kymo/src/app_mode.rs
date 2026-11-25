@@ -127,7 +127,8 @@ impl AppMode {
     }
 
     /// The color scheme and accent color the desktop portal reports, kept up to date by a
-    /// thread that follows their changes and then wakes `ctx`. Unknown without a session bus or portal.
+    /// thread that follows their changes and then wakes `ctx`. Unknown without a session
+    /// bus or portal.
     ///
     /// Waits briefly for the first answer, so that the first frame has the right theme.
     #[cfg(all(unix, not(target_os = "macos")))]

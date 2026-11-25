@@ -3,10 +3,9 @@
 //!
 //! A [`Spec`] describes a file: format, channels (each with its own rate and scaling),
 //! record layout, gaps (EDF+D/BDF+D) and annotations (TALs in EDF+/BDF+, markers in
-//! BrainVision and BVRF, events in EEGLAB and GDF, marker streams in XDF). [`write()`] streams it to
-//! disk. Records are
-//! EDF's and GDF's data records and FIFF's data buffers; formats without them (BrainVision,
-//! EEGLAB, XDF, BVRF) only take their length from them.
+//! BrainVision and BVRF, events in EEGLAB and GDF, marker streams in XDF). [`write()`]
+//! streams it to disk. Records are EDF's and GDF's data records and FIFF's data buffers;
+//! formats without them (BrainVision, EEGLAB, XDF, BVRF) only take their length from them.
 //! The sample values come from a deterministic truth function, [`Spec::digital`], so tests
 //! can check any reader output without keeping the data in memory.
 //!

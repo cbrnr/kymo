@@ -46,10 +46,11 @@ impl ScaleBar {
 
 /// The scale bars of the rows `view` shows, one for each scale group but stim channels'
 /// (whose rows hold codes, not amplitudes). A group's bar stands beside the first block of
-/// consecutive rows of that group on screen where it fits whole: in the middle of the block's top row
-/// on screen, or of its top row slot while the block goes on above the screen, and no
-/// lower in the block than the middle of its last row, so a block leaving at the top takes
-/// the bar along. A group without such a block, or without a usable amplitude, gets none.
+/// consecutive rows of that group on screen where it fits whole: in the middle of the
+/// block's top row on screen, or of its top row slot while the block goes on above the
+/// screen, and no lower in the block than the middle of its last row, so a block leaving at
+/// the top takes the bar along. A group without such a block, or without a usable
+/// amplitude, gets none.
 pub fn scale_bars(recording: &Recording, view: &ViewState) -> Vec<ScaleBar> {
     let top = view.top();
     let rows = view.rows() as f64;
