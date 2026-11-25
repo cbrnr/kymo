@@ -99,6 +99,16 @@ pub fn dots_button(ui: &mut Ui, label: String, hover: String, dots: Dots, height
         .on_hover_cursor(CursorIcon::PointingHand)
 }
 
+/// Shows a menu's contents, `add_contents`, in a scroll area that doesn't scroll, as it
+/// takes the scrolling a text field in it asks for to keep its cursor in view (New Type…,
+/// Other Types). Otherwise the channel list the menu opens from would scroll: its button
+/// out of view, the menu would close.
+fn contained(ui: &mut Ui, add_contents: impl FnOnce(&mut Ui)) {
+    egui::ScrollArea::neither()
+        .id_salt("kymo menu")
+        .show(ui, add_contents);
+}
+
 /// What a type's or a channel's menu asked for.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MenuChoice {
@@ -170,43 +180,55 @@ pub fn change_type_menu(
 ) -> Option<Retype> {
     let mut picked = None;
     ui.menu_button(CHANGE_TYPE, |ui| {
-        for kind in recording.iter().filter(|k| !k.is_stim()) {
-            let all = targets.kinds.iter().all(|k| k == kind);
-            if check_item(ui, true, all, true, kind.name(), None).clicked() && !all {
-                picked = Some(Retype::To(kind.clone()));
-            }
+        picked = change_type_items(ui, targets, recording, types);
+    });
+    picked
+}
+
+/// The items of a [`change_type_menu`], in a menu that is open.
+pub fn change_type_items(
+    ui: &mut Ui,
+    targets: &Targets<'_>,
+    recording: &[ChannelKind],
+    types: &mut TypeSettings,
+) -> Option<Retype> {
+    let mut picked = None;
+    for kind in recording.iter().filter(|k| !k.is_stim()) {
+        let all = targets.kinds.iter().all(|k| k == kind);
+        if check_item(ui, true, all, true, kind.name(), None).clicked() && !all {
+            picked = Some(Retype::To(kind.clone()));
         }
-        ui.separator();
-        let config = MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside);
-        SubMenuButton::new(OTHER_TYPES)
-            .config(config.clone())
-            .ui(ui, |ui| {
-                if let Some(kind) = other_types(ui, recording, types) {
-                    picked = Some(Retype::To(kind));
-                    ui.close();
-                }
-            });
-        SubMenuButton::new(NEW_TYPE).config(config).ui(ui, |ui| {
-            if let Some(kind) = new_type(ui) {
-                if kind.known().is_none() && !types.stored(&kind) {
-                    types.insert(TypeSet {
-                        name: kind.name().to_owned(),
-                        ..TypeSet::default()
-                    });
-                }
+    }
+    ui.separator();
+    let config = MenuConfig::new().close_behavior(PopupCloseBehavior::CloseOnClickOutside);
+    SubMenuButton::new(OTHER_TYPES)
+        .config(config.clone())
+        .ui(ui, |ui| {
+            if let Some(kind) = other_types(ui, recording, types) {
                 picked = Some(Retype::To(kind));
                 ui.close();
             }
         });
-        ui.separator();
-        let text = match &targets.file_kind {
-            Some(kind) => format!("{FROM_FILE} ({})", kind.name()),
-            None => FROM_FILE.to_owned(),
-        };
-        if ui.add_enabled(targets.retyped, Button::new(text)).clicked() {
-            picked = Some(Retype::FromFile);
+    SubMenuButton::new(NEW_TYPE).config(config).ui(ui, |ui| {
+        if let Some(kind) = new_type(ui) {
+            if kind.known().is_none() && !types.stored(&kind) {
+                types.insert(TypeSet {
+                    name: kind.name().to_owned(),
+                    ..TypeSet::default()
+                });
+            }
+            picked = Some(Retype::To(kind));
+            ui.close();
         }
     });
+    ui.separator();
+    let text = match &targets.file_kind {
+        Some(kind) => format!("{FROM_FILE} ({})", kind.name()),
+        None => FROM_FILE.to_owned(),
+    };
+    if ui.add_enabled(targets.retyped, Button::new(text)).clicked() {
+        picked = Some(Retype::FromFile);
+    }
     picked
 }
 
@@ -326,44 +348,44 @@ pub fn type_menu(
     );
     let mut choice = MenuChoice::default();
     Popup::menu(&response).show(|ui| {
-        ui.label(RichText::new(name).strong());
-        if !kind.is_stim() {
-            let (remove_dc, own_scale) = (types.remove_dc(kind), types.own_scale(kind));
-            let item = check_item(ui, true, remove_dc, false, REMOVE_DC, None);
-            label_for(ui, &item, remove_dc_label(kind));
-            if item.clicked() {
-                types.set_remove_dc(kind, !remove_dc);
+        contained(ui, |ui| {
+            ui.label(RichText::new(name).strong());
+            if !kind.is_stim() {
+                let (remove_dc, own_scale) = (types.remove_dc(kind), types.own_scale(kind));
+                let item = check_item(ui, true, remove_dc, false, REMOVE_DC, None);
+                label_for(ui, &item, remove_dc_label(kind));
+                if item.clicked() {
+                    types.set_remove_dc(kind, !remove_dc);
+                }
+                let item = check_item(ui, true, own_scale, false, OWN_SCALE, None);
+                label_for(ui, &item, own_scale_label(kind));
+                if item.clicked() {
+                    types.set_own_scale(kind, !own_scale);
+                }
             }
-            let item = check_item(ui, true, own_scale, false, OWN_SCALE, None);
-            label_for(ui, &item, own_scale_label(kind));
-            if item.clicked() {
-                types.set_own_scale(kind, !own_scale);
+            ui.separator();
+            choice.retype = change_type_menu(ui, targets, recording, types);
+            ui.separator();
+            let reset = ui.add_enabled(types.changed(kind), Button::new(format!("Reset {name}")));
+            if reset.clicked() {
+                types.reset(kind);
             }
-        }
-        ui.separator();
-        choice.retype = change_type_menu(ui, targets, recording, types);
-        ui.separator();
-        let reset = ui.add_enabled(types.changed(kind), Button::new(format!("Reset {name}")));
-        if reset.clicked() {
-            types.reset(kind);
-        }
-        if ui.button(ALL_TYPES).clicked() {
-            choice.all_types = true;
-        }
+            if ui.button(ALL_TYPES).clicked() {
+                choice.all_types = true;
+            }
+        })
     });
     choice
 }
 
 /// A "⋯" button `height` high at the end of a channel's row, named "Options for {label}"
-/// for screen readers, its dots drawn as `dots` says: a menu with `title` (the channel's
-/// name, or how many channels it acts on), Mark as Bad for those that are good and Mark as
-/// Good for those that are bad, each saying how many it marks (see [`mark_label`]), Change
-/// Type To (see [`change_type_menu`]) and Scale With Type, enabled where a target is scaled
-/// on its own.
+/// for screen readers, its dots drawn as `dots` says: a menu for that channel alone (what
+/// acts on several is in the channel list's selection bar), with its name, Mark as Bad or
+/// Mark as Good, Change Type To (see [`change_type_menu`]) and Scale With Type, enabled
+/// while it is scaled on its own.
 pub fn channel_menu(
     ui: &mut Ui,
     label: &str,
-    title: &str,
     types: &mut TypeSettings,
     (targets, recording): (&Targets<'_>, &[ChannelKind]),
     dots: Dots,
@@ -372,29 +394,31 @@ pub fn channel_menu(
     let response = dots_button(
         ui,
         format!("Options for {label}"),
-        format!("Options for {title}"),
+        format!("Options for {label}"),
         dots,
         height,
     );
     let mut choice = MenuChoice::default();
     Popup::menu(&response).show(|ui| {
-        ui.label(RichText::new(title).strong());
-        ui.separator();
-        let total = targets.kinds.len();
-        for (count, bad) in [(total - targets.bad, true), (targets.bad, false)] {
-            if count > 0 && ui.button(mark_label(count, total, bad)).clicked() {
-                choice.bad = Some(bad);
+        contained(ui, |ui| {
+            ui.label(RichText::new(label).strong());
+            ui.separator();
+            let total = targets.kinds.len();
+            for (count, bad) in [(total - targets.bad, true), (targets.bad, false)] {
+                if count > 0 && ui.button(mark_label(count, total, bad)).clicked() {
+                    choice.bad = Some(bad);
+                }
             }
-        }
-        ui.separator();
-        choice.retype = change_type_menu(ui, targets, recording, types);
-        ui.separator();
-        if ui
-            .add_enabled(targets.scaled_alone, Button::new(SCALE_WITH_TYPE))
-            .clicked()
-        {
-            choice.rejoin = true;
-        }
+            ui.separator();
+            choice.retype = change_type_menu(ui, targets, recording, types);
+            ui.separator();
+            if ui
+                .add_enabled(targets.scaled_alone, Button::new(SCALE_WITH_TYPE))
+                .clicked()
+            {
+                choice.rejoin = true;
+            }
+        })
     });
     choice
 }

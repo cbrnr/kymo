@@ -20,6 +20,7 @@ use kymo::settings::{Settings, Theme, load_annotation_colors};
 use kymo::types::TypeSettings;
 use kymo::ui::axis::Clock;
 use kymo::ui::gpu::Gpu;
+use kymo::ui::header::DESELECT;
 use kymo::ui::palette::{annotation_color, trace_color};
 use kymo::ui::types::{ALL_TYPES, CHANGE_TYPE, FROM_FILE, NEW_TYPE, OTHER_TYPES};
 use kymo::ui::{minimap, scrollbar, status};
@@ -1397,7 +1398,11 @@ fn types_rows_give_their_rates() {
     use egui::accesskit::Role;
     // EEG Fz to Oz at 256 Hz and EEG DC at 512 Hz, Resp at 64 Hz, a trigger at 512 Hz.
     let file = TempFile::preset("edf+d-mixed");
-    let mut harness = window(file.path());
+    // Tall enough for every row above the selection bar.
+    let mut harness = window_from(
+        Harness::builder().with_size(egui::vec2(1200.0, 900.0)),
+        file.path(),
+    );
     ready(&mut harness);
     let rights: Vec<f32> = [
         "5 \u{b7} 256\u{2013}512 Hz",
@@ -2116,10 +2121,10 @@ fn type_changes_show_complete_in_the_next_frame() {
     complete(&harness, "Scale Each Channel");
 }
 
-/// A click on a channel's name selects it, ⌘-click adds or takes one out, ⇧-click selects
-/// the rows from the last clicked; a selected row's menu acts on every selected channel
-/// (Other Types, filtered), a type's menu on its channels. Esc and a click below the rows
-/// clear the selection.
+/// A click in a channel's row selects it, ⌘-click adds or takes one out, ⇧-click selects
+/// the rows from the last clicked; the selection bar's Type menu acts on every selected
+/// channel (Other Types, filtered), a row's menu on its channel alone, a type's menu on its
+/// channels. Esc and the bar's Deselect clear the selection.
 #[test]
 fn selected_channels_change_type_together() {
     use egui::accesskit::Role;
@@ -2141,20 +2146,15 @@ fn selected_channels_change_type_together() {
         .click_modifiers(command());
     harness.run_steps(2);
     assert_eq!(selected(&harness), [0, 2]);
-    // A row out of the selection acts on itself alone.
-    channel_options(&mut harness, "A2");
-    let titled = |h: &Harness<'_, KymoApp>, title: &str| {
-        h.query_all_by_role_and_label(Role::Label, title).count()
-    };
-    // Its name in the list (and the traces), and the menu's title.
-    assert_eq!(titled(&harness, "A2"), titled(&harness, "A1") + 1);
-    assert_eq!(titled(&harness, "2 channels"), 0);
-    close_menu(&mut harness);
+    // A row's menu acts on itself alone, selected or not; the bar on the selection.
+    for name in ["A2", "A1"] {
+        channel_options(&mut harness, name);
+        assert!(harness.query_by_label("Mark 2 Channels as Bad").is_none());
+        close_menu(&mut harness);
+    }
     assert_eq!(selected(&harness), [0, 2]);
-
-    channel_options(&mut harness, "A1");
-    harness.get_by_label("2 channels");
-    menu_path(&mut harness, &[CHANGE_TYPE, OTHER_TYPES]);
+    harness.get_by_label("2 channels selected");
+    menu_path(&mut harness, &["Type", OTHER_TYPES]);
     harness.get_by_label("Filter Other Types").type_text("temp");
     harness.run_steps(2);
     // Not the recording's types.
@@ -2186,9 +2186,8 @@ fn selected_channels_change_type_together() {
     assert!(selected(&harness).is_empty());
     click_in_list(&mut harness, Role::Label, "A2");
     assert_eq!(selected(&harness), [1]);
-    // The last row, Status, and below it.
-    let last = harness.get_by_label("Show Status").rect();
-    click(&mut harness, last.center() + egui::vec2(0.0, 30.0));
+    harness.get_by_label(DESELECT).click();
+    harness.run_steps(2);
     assert!(selected(&harness).is_empty());
 
     // The type's menu returns them both, its file's type differing.
@@ -2197,10 +2196,10 @@ fn selected_channels_change_type_together() {
     assert_eq!(order(&harness), [0, 1, 2, 3, 4]);
 }
 
-/// A channel row's menu ("⋯") shows only while the pointer is on its row or the row is
-/// selected; it takes its room either way, in line with the type rows' menus.
+/// A channel row's menu ("⋯") shows only while the pointer is on its row, selected or not;
+/// it takes its room either way, in line with the type rows' menus.
 #[test]
-fn a_channels_menu_shows_on_its_row_hovered_or_selected() {
+fn a_channels_menu_shows_on_its_row_hovered() {
     use egui::accesskit::Role;
     let file = typed_preset();
     let mut harness = fonts_window(file.path(), options());
@@ -2228,8 +2227,10 @@ fn a_channels_menu_shows_on_its_row_hovered_or_selected() {
     let menu = harness.get_by_label("Options for A2").rect();
     let type_menu = harness.get_by_label("Options for EEG channels").rect();
     assert!((menu.right() - type_menu.right()).abs() < 0.5);
+    // Selected, it acts on its row alone all the same: not shown without the pointer.
     click_in_list(&mut harness, Role::Label, "A2");
-    assert!(contrast(&mut harness, away) > 40);
+    assert!(viewer(&harness).view().is_selected(kymo_core::ChannelId(1)));
+    assert!(contrast(&mut harness, away) < 5);
 }
 
 /// A good channel's Bad toggle shows only while its row is hovered, selected or not, a bad
@@ -2267,7 +2268,7 @@ fn bad_toggles_show_where_they_act_and_menus_mark_bad() {
     click_in_list(&mut harness, Role::Button, "A2 bad");
     assert!(contrast(&mut harness, away) > 40);
 
-    // A2 and EOG L bad, A1 good: the selection's menu marks either.
+    // A2 and EOG L bad, A1 good: the selection bar's Mark menu marks either.
     let (a1, a2, eog) = (
         channel_named(&harness, "A1"),
         channel_named(&harness, "A2"),
@@ -2286,11 +2287,11 @@ fn bad_toggles_show_where_they_act_and_menus_mark_bad() {
         let view = viewer(h).view();
         [a1, a2, eog].map(|c| view.is_bad(c))
     };
-    channel_options(&mut harness, "A1");
+    menu_path(&mut harness, &["Mark"]);
     assert!(harness.query_by_label("Mark 2 Channels as Good").is_some());
     menu_path(&mut harness, &["Mark 1 Channel as Bad"]);
     assert_eq!(bad(&harness), [true; 3]);
-    channel_options(&mut harness, "A1");
+    menu_path(&mut harness, &["Mark"]);
     assert!(harness.query_by_label("Mark 3 Channels as Bad").is_none());
     menu_path(&mut harness, &["Mark 3 Channels as Good"]);
     assert_eq!(bad(&harness), [false; 3]);
@@ -6311,7 +6312,8 @@ fn unsaved_changes_are_asked_about() {
 fn every_channel_type_has_a_row_a_color_and_a_swatch() {
     use egui::accesskit::Role;
     let file = TempFile::preset("edf+c-kinds");
-    let mut harness = screenshot_window(file.path());
+    // Tall enough for every type's row, collapsed, above the selection bar.
+    let mut harness = screenshot_window_sized(file.path(), egui::vec2(1200.0, 800.0));
     ready(&mut harness);
     // Top to bottom, the types of edf+c-kinds: EEG, MEG, EOG, ECG, the other signals,
     // stim; none it lacks.

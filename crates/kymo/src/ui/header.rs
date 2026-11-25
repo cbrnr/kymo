@@ -17,7 +17,10 @@ use crate::ui::axis::{Clock, format_time};
 use crate::ui::color::{Choice, swatch};
 use crate::ui::palette::{annotation_color, bad_color, type_color};
 use crate::ui::readout::display_unit;
-use crate::ui::types::{Dots, Retype, Targets, channel_menu, menu_width, type_menu, type_swatch};
+use crate::ui::types::{
+    Dots, Retype, SCALE_WITH_TYPE, Targets, change_type_items, channel_menu, mark_label,
+    menu_width, type_menu, type_swatch,
+};
 use crate::ui::{elide_middle, text_button};
 use crate::view::ViewState;
 
@@ -1180,7 +1183,6 @@ fn channel_list(
         })
         .collect();
     let recording_kinds = view.kinds();
-    let selected = view.selected();
     // The menu at each channel row's end, always given its room, so nothing moves as it
     // shows.
     let menu = menu_width(row_height);
@@ -1188,6 +1190,11 @@ fn channel_list(
     // A solid scroll bar, which egui makes room for while the list scrolls: a floating one
     // lies over the rows' ends and takes the clicks meant for the types' menus.
     let scroll = std::mem::replace(&mut ui.spacing_mut().scroll, ScrollStyle::solid());
+    // Below the rows, always there, so the list keeps its height as channels are selected.
+    egui::Panel::bottom("selection bar")
+        .resizable(false)
+        .frame(Frame::NONE.inner_margin(Margin::symmetric(0, 6)))
+        .show(ui, |ui| selection_bar(ui, view, types, platform));
     let area = from_top(ui, "channels", recording, ScrollArea::vertical())
         .auto_shrink(false)
         .show_rows(ui, row_height, items.len(), |ui, rows| {
@@ -1218,7 +1225,7 @@ fn channel_list(
                         ui.painter().rect_filled(rect, 0.0, fill);
                     }
                     if pointed {
-                        let fill = visuals.widgets.hovered.weak_bg_fill.gamma_multiply(0.5);
+                        let fill = visuals.widgets.hovered.weak_bg_fill;
                         ui.painter().rect_filled(rect, 0.0, fill);
                     }
                 }
@@ -1424,30 +1431,17 @@ fn channel_list(
                     }
                     cells.push(response);
                 }
-                // A selected row's menu acts on every selected channel.
-                let ids = if view.is_selected(id) && selected.len() > 1 {
-                    selected.clone()
-                } else {
-                    vec![id]
-                };
-                let title = match ids.len() {
-                    1 => name.clone(),
-                    n => format!("{n} channels"),
-                };
-                let kinds: Vec<ChannelKind> =
-                    ids.iter().map(|&c| view.kind_of(c).clone()).collect();
+                // The menu acts on its row alone, selected or not (what acts on the
+                // selection is in the bar below the list), so it shows only on hover.
+                let ids = [id];
+                let kinds = [view.kind_of(id).clone()];
                 let targets = targets_of(view, &ids, &kinds);
-                let dots = if pointed || view.is_selected(id) {
-                    Dots::Weak
-                } else {
-                    Dots::Hidden
-                };
+                let dots = if pointed { Dots::Weak } else { Dots::Hidden };
                 let choice = ui
                     .with_layout(Layout::right_to_left(Align::Center), |ui| {
                         channel_menu(
                             ui,
                             name,
-                            &title,
                             types,
                             (&targets, &recording_kinds),
                             dots,
@@ -1460,9 +1454,7 @@ fn channel_list(
                     view.rejoin(&ids);
                 }
                 if let Some(bad) = choice.bad {
-                    for &c in &ids {
-                        view.set_bad(c, bad);
-                    }
+                    view.set_bad(id, bad);
                 }
                 all_types |= choice.all_types;
                 if let Some(full) = full {
@@ -1521,6 +1513,114 @@ fn channel_list(
         ui.data_mut(|d| d.insert_temp(closed_key, closed));
     }
     all_types
+}
+
+/// What the selection bar's button that clears the selection is named.
+pub const DESELECT: &str = "Deselect";
+
+/// The selection bar below the channel list, two rows high whatever it shows: with nothing
+/// selected, how to select (with `platform`'s keys); with channels selected, how many and
+/// Deselect, then what acts on them all: Hide (Show while all are hidden), Mark (Mark as
+/// Bad for those that are good, Mark as Good for those that are bad, saying how many each
+/// marks), Type (Change Type To's items) and Scale (up and down, with their shortcuts and
+/// the scroll gesture, and Scale With Type).
+fn selection_bar(ui: &mut Ui, view: &mut ViewState, types: &mut TypeSettings, platform: Platform) {
+    let row_height = ui.spacing().interact_size.y;
+    ui.set_min_height(2.0 * row_height + ui.spacing().item_spacing.y);
+    let selected = view.selected();
+    if selected.is_empty() {
+        let keys = match platform {
+            Platform::Mac => "\u{2318}-click or \u{21e7}-click",
+            Platform::Windows | Platform::Linux => "Ctrl-click or Shift-click",
+        };
+        let hint = format!("Click channels to select them; {keys} for more.");
+        ui.add(Label::new(RichText::new(hint).weak()).wrap());
+        return;
+    }
+    let n = selected.len();
+    ui.horizontal(|ui| {
+        ui.set_min_height(row_height);
+        ui.label(format!("{n} channel{} selected", plural(n)));
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let deselect = ui
+                .add(text_button(DESELECT, None))
+                .on_hover_text("Deselect All Channels (Esc)");
+            if deselect.clicked() {
+                view.clear_selection();
+            }
+        });
+    });
+    let kinds: Vec<ChannelKind> = selected.iter().map(|&c| view.kind_of(c).clone()).collect();
+    let targets = targets_of(view, &selected, &kinds);
+    let recording_kinds = view.kinds();
+    let (mut mark, mut picked, mut scale, mut rejoin) = (None, None, None, false);
+    let any_shown = selected.iter().any(|&c| view.is_shown(c));
+    ui.horizontal(|ui| {
+        ui.set_min_height(row_height);
+        let hide = if any_shown { "Hide" } else { "Show" };
+        if ui.button(hide).clicked() {
+            for &c in &selected {
+                view.set_shown(c, !any_shown);
+            }
+        }
+        bar_menu(ui, "Mark", |ui| {
+            for (count, bad) in [(n - targets.bad, true), (targets.bad, false)] {
+                if count > 0 && ui.button(mark_label(count, n, bad)).clicked() {
+                    mark = Some(bad);
+                }
+            }
+        });
+        bar_menu(ui, "Type", |ui| {
+            picked = change_type_items(ui, &targets, &recording_kinds, types);
+        });
+        bar_menu(ui, "Scale", |ui| {
+            for (action, label) in [
+                (Action::ScaleSelectedUp, "Scale Up"),
+                (Action::ScaleSelectedDown, "Scale Down"),
+            ] {
+                let mut button = egui::Button::new(label);
+                if let Some(chord) = Keymap::chord(action) {
+                    button = button.shortcut_text(chord.display(platform));
+                }
+                if ui.add(button).clicked() {
+                    scale = Some(action);
+                }
+            }
+            if ui
+                .add_enabled(targets.scaled_alone, egui::Button::new(SCALE_WITH_TYPE))
+                .clicked()
+            {
+                rejoin = true;
+            }
+            ui.separator();
+            let keys = Keymap::new(platform).channel_scale_keys();
+            ui.label(RichText::new(format!("Or {keys}-scroll over one of them.")).weak());
+        });
+    });
+    if let Some(bad) = mark {
+        for &c in &selected {
+            view.set_bad(c, bad);
+        }
+    }
+    retype(ui, view, &selected, picked);
+    if let Some(action) = scale {
+        view.apply(action);
+    }
+    if rejoin {
+        view.rejoin(&selected);
+    }
+}
+
+/// A button named `label` with a chevron after it, which opens a menu of `add_contents`.
+fn bar_menu(ui: &mut Ui, label: &str, add_contents: impl FnOnce(&mut Ui)) {
+    let icon = egui::IdSalt::new("chevron");
+    let button = egui::Button::new((label, egui::Atom::custom(icon, vec2(CHEVRON_WIDTH, 1.0))));
+    let atoms = button.atom_ui(ui);
+    if let Some(rect) = atoms.rect(icon) {
+        let color = ui.visuals().text_color();
+        chevron(ui.painter(), rect.center(), true, color);
+    }
+    egui::Popup::menu(&atoms.response).show(add_contents);
 }
 
 /// What the mark of a channel scaled on its own is named for screen readers (and tests).
