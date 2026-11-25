@@ -2165,6 +2165,78 @@ fn a_channels_menu_shows_on_its_row_hovered_or_selected() {
     assert!(contrast(&mut harness, away) > 40);
 }
 
+/// A good channel's Bad toggle shows only while its row is hovered or selected, a bad one's
+/// always. A channel's menu marks it, or the channels selected with it, bad or good, saying
+/// how many it marks.
+#[test]
+fn bad_toggles_show_where_they_act_and_menus_mark_bad() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = fonts_window(file.path(), options());
+    ready(&mut harness);
+    // The spread of brightness in A2's toggle, the pointer at `pointer`: none where it
+    // shows nothing.
+    let contrast = |h: &mut Harness<'_, KymoApp>, pointer: egui::Pos2| {
+        hover(h, pointer);
+        h.run_steps(2);
+        let r = h.get_by_label("A2 bad").rect();
+        let image = h.render().unwrap();
+        let values: Vec<i32> = (r.left() as u32..r.right() as u32)
+            .flat_map(|x| (r.top() as u32..r.bottom() as u32).map(move |y| (x, y)))
+            .map(|(x, y)| i32::from(*image.get_pixel(x, y).0[..3].iter().max().unwrap()))
+            .collect();
+        values.iter().max().unwrap() - values.iter().min().unwrap()
+    };
+    let away = egui::pos2(900.0, 650.0);
+    assert!(contrast(&mut harness, away) < 5);
+    let row = harness.get_by_label("Show A2").rect().center() + egui::vec2(60.0, 0.0);
+    assert!(contrast(&mut harness, row) > 40);
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert!(contrast(&mut harness, away) > 40);
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    assert!(viewer(&harness).view().selected().is_empty());
+    assert!(contrast(&mut harness, away) < 5);
+    click_in_list(&mut harness, Role::Button, "A2 bad");
+    assert!(contrast(&mut harness, away) > 40);
+
+    // A2 and EOG L bad, A1 good: the selection's menu marks either.
+    let (a1, a2, eog) = (
+        channel_named(&harness, "A1"),
+        channel_named(&harness, "A2"),
+        channel_named(&harness, "EOG L"),
+    );
+    click_in_list(&mut harness, Role::Button, "EOG L bad");
+    click_in_list(&mut harness, Role::Label, "A1");
+    for name in ["A2", "EOG L"] {
+        harness
+            .get_by_role_and_label(Role::Label, name)
+            .click_modifiers(command());
+        harness.run_steps(2);
+    }
+    assert_eq!(viewer(&harness).view().selected().len(), 3);
+    let bad = |h: &Harness<'_, KymoApp>| {
+        let view = viewer(h).view();
+        [a1, a2, eog].map(|c| view.is_bad(c))
+    };
+    channel_options(&mut harness, "A1");
+    assert!(harness.query_by_label("Mark 2 Channels as Good").is_some());
+    menu_path(&mut harness, &["Mark 1 Channel as Bad"]);
+    assert_eq!(bad(&harness), [true; 3]);
+    channel_options(&mut harness, "A1");
+    assert!(harness.query_by_label("Mark 3 Channels as Bad").is_none());
+    menu_path(&mut harness, &["Mark 3 Channels as Good"]);
+    assert_eq!(bad(&harness), [false; 3]);
+
+    // A row out of the selection marks itself alone.
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    channel_options(&mut harness, "A2");
+    assert!(harness.query_by_label("Mark as Good").is_none());
+    menu_path(&mut harness, &["Mark as Bad"]);
+    assert_eq!(bad(&harness), [false, true, false]);
+}
+
 /// Closes an open menu, as Esc does.
 fn close_menu(harness: &mut Harness<'_, KymoApp>) {
     harness.key_press(Key::Escape);

@@ -108,6 +108,8 @@ pub struct MenuChoice {
     pub retype: Option<Retype>,
     /// The channels back to their type's amplitude (a channel's menu only).
     pub rejoin: bool,
+    /// The channels marked bad (`true`) or good (a channel's menu only).
+    pub bad: Option<bool>,
 }
 
 /// A change of channels' types picked in a [`change_type_menu`].
@@ -129,6 +131,8 @@ pub struct Targets<'a> {
     /// Whether any was scaled on its own though its type shares an amplitude, for a
     /// channel menu's Scale With Type.
     pub scaled_alone: bool,
+    /// How many are bad, for a channel menu's Mark as Bad and Mark as Good.
+    pub bad: usize,
 }
 
 /// What the Change Type To menu is called, and its items.
@@ -139,6 +143,17 @@ pub const FROM_FILE: &str = "From File";
 /// The channel menu's item that returns channels scaled on their own to their type's
 /// amplitude.
 pub const SCALE_WITH_TYPE: &str = "Scale With Type";
+
+/// The channel menu's item that marks `count` of a menu's `total` channels bad (or good):
+/// "Mark as Bad" for a menu of one channel, else "Mark 3 Channels as Bad".
+pub fn mark_label(count: usize, total: usize, bad: bool) -> String {
+    let state = if bad { "Bad" } else { "Good" };
+    match (total, count) {
+        (1, _) => format!("Mark as {state}"),
+        (_, 1) => format!("Mark 1 Channel as {state}"),
+        _ => format!("Mark {count} Channels as {state}"),
+    }
+}
 
 /// A Change Type To submenu for the channels `targets`: the recording's types (`recording`,
 /// stim left out), checked where every target has it; Other Types, every other type kymo
@@ -341,8 +356,10 @@ pub fn type_menu(
 
 /// A "⋯" button `height` high at the end of a channel's row, named "Options for {label}"
 /// for screen readers, its dots drawn as `dots` says: a menu with `title` (the channel's
-/// name, or how many channels it acts on), Change Type To (see [`change_type_menu`]) and
-/// Scale With Type, enabled where a target is scaled on its own.
+/// name, or how many channels it acts on), Mark as Bad for those that are good and Mark as
+/// Good for those that are bad, each saying how many it marks (see [`mark_label`]), Change
+/// Type To (see [`change_type_menu`]) and Scale With Type, enabled where a target is scaled
+/// on its own.
 pub fn channel_menu(
     ui: &mut Ui,
     label: &str,
@@ -362,6 +379,13 @@ pub fn channel_menu(
     let mut choice = MenuChoice::default();
     Popup::menu(&response).show(|ui| {
         ui.label(RichText::new(title).strong());
+        ui.separator();
+        let total = targets.kinds.len();
+        for (count, bad) in [(total - targets.bad, true), (targets.bad, false)] {
+            if count > 0 && ui.button(mark_label(count, total, bad)).clicked() {
+                choice.bad = Some(bad);
+            }
+        }
         ui.separator();
         choice.retype = change_type_menu(ui, targets, recording, types);
         ui.separator();

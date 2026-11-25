@@ -1087,9 +1087,10 @@ fn stream_name(stream: &Stream) -> String {
 
 /// All channels in the view's order, under their types (see [`kind_row`]), drawing only the
 /// rows in view, in columns as wide as the widest entry of any channel. Per channel:
-/// whether it is shown, its name (a click scrolls the traces to it), whether it is bad, and
-/// its unit as the readout shows values (µV for EEG whatever the file stores); its type and
-/// rate are in the rows above it. A list too narrow for all of it narrows the units and
+/// whether it is shown, its name (a click scrolls the traces to it), its unit as the
+/// readout shows values (µV for EEG whatever the file stores), and a Bad toggle, which a
+/// good channel's row shows only while hovered or selected; its type and rate are in the
+/// rows above it. Its menu marks it (or the selected channels) bad or good too. A list too narrow for all of it narrows the units and
 /// names (shortened in the middle) and then leaves out the unit (see [`Columns::fit`]);
 /// hovering a row whose text is shortened or left out shows it all, its type and rate too,
 /// as does a channel whose type's channels differ in rate. Rows under a type or stream are
@@ -1358,13 +1359,22 @@ fn channel_list(
                     }
                 }
 
-                let response = ui.add(text_button(
-                    {
-                        let text = RichText::new("Bad").small();
-                        if bad { text } else { text.weak() }
-                    },
-                    Some(bad),
-                ));
+                // "Bad" on a bad channel's row; on a good one's only while it is hovered or
+                // selected, as what a click does, so a list of good channels doesn't read as
+                // all bad. Its room is always taken, so nothing moves as it shows.
+                let text = RichText::new("Bad").small();
+                let text = if bad {
+                    text
+                } else if pointed || view.is_selected(id) {
+                    text.weak()
+                } else {
+                    text.color(Color32::TRANSPARENT)
+                };
+                let response = ui.add(text_button(text, Some(bad))).on_hover_text(if bad {
+                    "Mark as Good"
+                } else {
+                    "Mark as Bad"
+                });
                 accessible_label(ui, &response, format!("{name} bad"));
                 if response.clicked() {
                     view.toggle_bad(id);
@@ -1430,6 +1440,11 @@ fn channel_list(
                 retype(ui, view, &ids, choice.retype);
                 if choice.rejoin {
                     view.rejoin(&ids);
+                }
+                if let Some(bad) = choice.bad {
+                    for &c in &ids {
+                        view.set_bad(c, bad);
+                    }
                 }
                 all_types |= choice.all_types;
                 if let Some(full) = full {
@@ -1901,6 +1916,7 @@ fn targets_of<'a>(view: &ViewState, ids: &[ChannelId], kinds: &'a [ChannelKind])
         file_kind,
         retyped: ids.iter().any(|&c| view.retyped(c)),
         scaled_alone: ids.iter().any(|&c| view.scaled_alone(c)),
+        bad: ids.iter().filter(|&&c| view.is_bad(c)).count(),
     }
 }
 
