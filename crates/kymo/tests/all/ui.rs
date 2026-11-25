@@ -4298,7 +4298,9 @@ fn esc_and_close_close_the_window_in_front() {
     // A click brings one to the front.
     press(&mut harness, command(), Key::Slash);
     press(&mut harness, command(), Key::Comma);
-    harness.get_by_label("Pan Time").click();
+    // At the label's left edge, which the Settings window in front doesn't reach.
+    let label = harness.get_by_label("Pan Time").rect();
+    click(&mut harness, label.left_center() + egui::vec2(1.0, 0.0));
     harness.run_steps(2);
     press(&mut harness, Modifiers::NONE, Key::Escape);
     assert_eq!(open(&harness), (true, false));

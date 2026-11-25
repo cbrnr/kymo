@@ -17,9 +17,18 @@ pub const DEFAULT_ACCENT: Color32 = Color32::from_rgb(0, 122, 255);
 /// Contrast that text needs against its background (WCAG's AA for normal text).
 pub const TEXT_CONTRAST: f32 = 4.5;
 
+/// The padding inside every window and dialog, on all four sides, in points (egui's is 6).
+pub const WINDOW_MARGIN: egui::Margin = egui::Margin::same(16);
+
+/// The frame of a modal dialog: a window's, so that it has the same padding.
+pub fn modal_frame(ctx: &egui::Context) -> egui::Frame {
+    egui::Frame::window(&ctx.global_style())
+}
+
 /// Sets the light and the dark look on `ctx`, the selection in `accent` (the system's, or
 /// [`DEFAULT_ACCENT`]).
 pub fn apply(ctx: &egui::Context, accent: Option<Color32>) {
+    ctx.all_styles_mut(|style| style.spacing.window_margin = WINDOW_MARGIN);
     ctx.set_visuals_of(egui::Theme::Light, light(accent));
     ctx.set_visuals_of(egui::Theme::Dark, dark(accent));
 }
