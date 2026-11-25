@@ -2,7 +2,7 @@
 
 ## [UNRELEASED] · 2026-11-25
 ### 🌀 Changed
-- Show the sidebar's Bad toggle only on bad channels and on the row under the pointer, mark channels bad or good from their menu, which says how many it marks, highlight selected channels' names in the traces, and deselect a channel by clicking it again ([#16](https://github.com/cbrnr/kymo/pull/16) by [Clemens Brunner](https://github.com/cbrnr)).
+- Select channels by clicking anywhere on their rows, act on the selection from a bar below the channel list, select all, bad, or a type's channels, show the Bad toggle only on bad channels and on hover, highlight selected channels' names in the traces, and undo bad marks ([#16](https://github.com/cbrnr/kymo/pull/16) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🔧 Fixed
 - Stop the channel names column from being dragged wider than its longest name needs ([#15](https://github.com/cbrnr/kymo/pull/15) by [Clemens Brunner](https://github.com/cbrnr)).
