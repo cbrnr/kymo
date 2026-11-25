@@ -19,11 +19,13 @@ use kymo_core::{AnnotationStore, Recording};
 use crate::annotations::{self, AnnotationColor, Legend, Marks};
 use crate::ui::palette::annotation_color;
 
-/// The strip's height at first and after Reset Height, in points.
-pub const DEFAULT_HEIGHT: f32 = 48.0;
-/// The lowest it gets, in points, and the highest, as a fraction of the trace region.
+/// The lowest the strip gets, in points, and the highest, as a fraction of the trace
+/// region.
 pub const MIN_HEIGHT: f32 = 24.0;
 pub const MAX_FRACTION: f32 = 0.25;
+/// Its height at first and after Reset Height, in points: the lowest, so it takes as little
+/// room from the traces as it can until it is made taller.
+pub const DEFAULT_HEIGHT: f32 = MIN_HEIGHT;
 /// The narrowest the window's rectangle gets, in points, so it stays visible and grabbable
 /// over long recordings.
 pub const MIN_WINDOW: f32 = 6.0;
