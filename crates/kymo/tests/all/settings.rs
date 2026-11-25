@@ -82,6 +82,7 @@ fn saved_settings_read_back() {
         scale_bars: false,
         minimap: true,
         minimap_height: 80.5,
+        minimap_signals: false,
         remove_dc: false,
         types: types(
             &[
@@ -143,6 +144,7 @@ fn unreadable_values_are_defaults_and_others_kept() {
         scale_bars: false,
         minimap: true,
         minimap_height: 80.5,
+        minimap_signals: false,
         remove_dc: false,
         types: types(
             &[ChannelKind::EEG],
@@ -202,6 +204,13 @@ fn unreadable_values_are_defaults_and_others_kept() {
             "kymo.minimap_height",
             Settings {
                 minimap_height: defaults.minimap_height,
+                ..saved.clone()
+            },
+        ),
+        (
+            "kymo.minimap_signals",
+            Settings {
+                minimap_signals: defaults.minimap_signals,
                 ..saved.clone()
             },
         ),
@@ -271,6 +280,7 @@ fn values_out_of_range_are_clamped() {
         scale_bars: true,
         minimap: false,
         minimap_height: 1.0,
+        minimap_signals: true,
         remove_dc: true,
         types: TypeSettings::default(),
         auto_scale_on_open: false,

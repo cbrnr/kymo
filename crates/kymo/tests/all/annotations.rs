@@ -383,12 +383,13 @@ proptest! {
 }
 
 /// What `overview_marks` must cover: every shown annotation over the whole recording,
-/// spanning the strip's height.
+/// over the strip's height, or with `rows` over the rows of its shown channels.
 fn overview_brute_force(
     store: &AnnotationStore,
     legend: &Legend,
     duration: f64,
     width: u32,
+    rows: Option<&ViewState>,
 ) -> Coverage {
     let mut cover = Coverage::new();
     let w = f64::from(width);
@@ -398,15 +399,26 @@ fn overview_brute_force(
         if !entry.shown {
             continue;
         }
+        let spans: Vec<Span> = match rows {
+            Some(view) if !d.channels.is_empty() && d.origin != Origin::Stim => d
+                .channels
+                .iter()
+                .filter_map(|&c| view.row_of(c))
+                .map(Span::Row)
+                .collect(),
+            _ => vec![Span::All],
+        };
         let x0 = d.onset / duration * w;
         let x1 = d.end() / duration * w;
         let first = x0.floor().clamp(0.0, w - 1.0) as u32;
-        let (bands, lines) = cover.entry((entry.color, Span::All)).or_default();
-        if x1 - x0 < 1.0 {
-            lines.insert(first);
-        } else {
-            let end = (x1.ceil().min(w) as u32).max(first + 1);
-            bands.extend(first..end);
+        for span in spans {
+            let (bands, lines) = cover.entry((entry.color, span)).or_default();
+            if x1 - x0 < 1.0 {
+                lines.insert(first);
+            } else {
+                let end = (x1.ceil().min(w) as u32).max(first + 1);
+                bands.extend(first..end);
+            }
         }
     }
     cover
@@ -416,26 +428,30 @@ proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
     /// The minimap's marks: every pixel column a shown annotation touches anywhere in the
-    /// recording holds a mark of its color over the whole height, channel and stim
-    /// annotations too, no other column does, and there are no labels.
+    /// recording holds a mark of its color over the whole height, or, where the minimap
+    /// has rows, over the rows of its shown channels (stim annotations over the height); no
+    /// other column does, and there are no labels.
     #[test]
     fn overview_marks_cover_exactly_the_shown_annotations(
         annotations in proptest::collection::vec(annotation(), 0..200),
         hidden in proptest::collection::vec(0..14usize, 0..4),
         width in 1..2000u32,
+        rows in proptest::option::of(view(&recording())),
     ) {
         let store = AnnotationStore::from_data(annotations);
         let mut legend = Legend::new(&store, false);
         for d in hidden {
             legend.set_shown(None, &format!("d{d}"), false);
         }
-        let marks = overview_marks(&store, &legend, 600.0, width);
-        check(&marks, &overview_brute_force(&store, &legend, 600.0, width), width)?;
+        let marks = overview_marks(&store, &legend, 600.0, width, rows.as_ref());
+        let want = overview_brute_force(&store, &legend, 600.0, width, rows.as_ref());
+        check(&marks, &want, width)?;
         prop_assert!(marks.labels.is_empty());
     }
 
     /// The annotations under the pointer over the minimap are exactly the shown ones with
-    /// a mark within `slack` columns of it, by onset.
+    /// a mark within `slack` columns of it, by onset; where the minimap has rows, a mark
+    /// over the height or the pointer's row.
     #[test]
     fn the_pointer_finds_the_overview_marks_under_it(
         annotations in proptest::collection::vec(annotation(), 0..200),
@@ -443,12 +459,22 @@ proptest! {
         width in 1..2000u32,
         x in 0.0..1.0f64,
         slack in 0..4u32,
+        rows in proptest::option::of((view(&recording()), 0..8u32)),
     ) {
         let store = AnnotationStore::from_data(annotations);
         let mut legend = Legend::new(&store, false);
         for d in hidden {
             legend.set_shown(None, &format!("d{d}"), false);
         }
+        // With rows, the pointer is over a shown channel's.
+        let (rows, channel) = match rows {
+            Some((view, c)) => {
+                let c = ChannelId(c);
+                prop_assume!(view.row_of(c).is_some());
+                (Some(view), Some(c))
+            }
+            None => (None, None),
+        };
         let x = x * f64::from(width);
         let at = (x.floor() as u32).min(width - 1);
         let near = at.saturating_sub(slack)..at + 1 + slack;
@@ -456,13 +482,15 @@ proptest! {
             .iter()
             .filter(|a| {
                 let alone = AnnotationStore::from_data(vec![a.data.clone()]);
-                overview_brute_force(&alone, &legend, 600.0, width)
-                    .into_values()
-                    .any(|(bands, lines)| bands.union(&lines).any(|c| near.contains(c)))
+                let pointed = channel.and_then(|c| rows.as_ref()?.row_of(c)).map(Span::Row);
+                overview_brute_force(&alone, &legend, 600.0, width, rows.as_ref())
+                    .into_iter()
+                    .filter(|((_, span), _)| pointed.is_none() || *span == Span::All || Some(*span) == pointed)
+                    .any(|(_, (bands, lines))| bands.union(&lines).any(|c| near.contains(c)))
             })
             .map(|a| a.id)
             .collect();
-        let got: Vec<_> = overview_under(&store, &legend, 600.0, width, x, slack)
+        let got: Vec<_> = overview_under(&store, &legend, 600.0, width, x, slack, channel)
             .into_iter()
             .map(|a| a.id)
             .collect();

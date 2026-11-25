@@ -200,6 +200,8 @@ pub struct Shown {
     /// The minimap's height, if it was resized (it applies to the viewer at once; the app
     /// keeps it).
     pub minimap_height: Option<f32>,
+    /// Whether the minimap shows signals, if its menu changed it (as the height).
+    pub minimap_signals: Option<bool>,
 }
 
 pub struct Viewer {
@@ -237,13 +239,15 @@ pub struct Viewer {
     /// Whether scale bars are drawn, and those of the last frame with where they were.
     show_scale_bars: bool,
     scale_bars: Vec<(ScaleBar, Rect)>,
-    /// Whether the minimap is shown, its height in points as set, and its state.
+    /// Whether the minimap is shown, its height in points as set, whether it shows signals,
+    /// and its state.
     show_minimap: bool,
     minimap_height: f32,
+    minimap_signals: bool,
     minimap: Minimap,
-    /// The time under the pointer over the minimap, and the annotations there as the status
-    /// line shows them.
-    minimap_pointer: Option<(f64, String)>,
+    /// The time under the pointer over the minimap, the channel of its row (with signals),
+    /// and the annotations there as the status line shows them.
+    minimap_pointer: Option<(f64, Option<ChannelId>, String)>,
     /// Whether [`Action::AutoScale`] waits for a complete frame.
     auto_scale: bool,
     /// What was set per channel type (colors here; the view has the rest).
@@ -324,6 +328,7 @@ impl Viewer {
             scale_bars: Vec::new(),
             show_minimap: false,
             minimap_height: minimap::DEFAULT_HEIGHT,
+            minimap_signals: true,
             minimap: Minimap::default(),
             minimap_pointer: None,
             auto_scale: false,
@@ -608,11 +613,17 @@ impl Viewer {
         self.show_scale_bars = on;
     }
 
-    /// Whether the minimap is shown in place of the time scrollbar, and its height in points
-    /// (before the window limits it), from the next frame on.
-    pub fn set_minimap(&mut self, on: bool, height: f32) {
+    /// Whether the minimap is shown in place of the time scrollbar, its height in points
+    /// (before the window limits it), and whether it shows signals, from the next frame on.
+    pub fn set_minimap(&mut self, on: bool, height: f32, signals: bool) {
         self.show_minimap = on;
         self.minimap_height = height;
+        self.minimap_signals = signals;
+    }
+
+    /// The minimap's state.
+    pub fn minimap(&self) -> &Minimap {
+        &self.minimap
     }
 
     /// The scale bars of the last frame, each with the rectangle of its bar (not its
@@ -994,6 +1005,7 @@ impl Viewer {
             channel_types,
             types,
             minimap_height: minimap.height,
+            minimap_signals: minimap.signals,
         }
     }
 
@@ -1046,14 +1058,21 @@ impl Viewer {
     fn status_line(&self) -> StatusLine {
         let service = self.service();
         let rec = &self.document.recording;
-        // Over the minimap, its time and annotations, without a channel.
-        let (time, channel, pointed) = match &self.minimap_pointer {
-            Some((time, under)) => (Some(*time), None, under.clone()),
-            None => (self.hover.time, self.hover.channel, self.pointed.clone()),
+        // Over the minimap, its time, its row's channel without a reading, and its
+        // annotations.
+        let (time, channel, row, pointed) = match &self.minimap_pointer {
+            Some((time, row, under)) => (Some(*time), None, *row, under.clone()),
+            None => (
+                self.hover.time,
+                self.hover.channel,
+                None,
+                self.pointed.clone(),
+            ),
         };
         let left = time
             .map(|time| {
                 let rate = rec.sfreq();
+                let row = row.map(|id| (rec.channel(id).name.as_str(), None));
                 let channel = channel.map(|id| {
                     let info = rec.channel(id);
                     let view = self.view.tile_view(self.width_px.max(1));
@@ -1068,7 +1087,7 @@ impl Viewer {
                     time,
                     status::time_decimals(rate),
                     Clock::for_end(self.view.duration()),
-                    channel,
+                    channel.or(row),
                 )
             })
             .unwrap_or_default();
@@ -1211,6 +1230,7 @@ impl Viewer {
         let mut asked = minimap::Shown::default();
         self.minimap_pointer = None;
         if let Some(rect) = minimap_rect {
+            let service = live(&self.service);
             asked = self.minimap.show(
                 ui,
                 id.with("minimap"),
@@ -1221,19 +1241,30 @@ impl Viewer {
                     legend: &self.legend,
                     duration: self.view.duration(),
                     window: self.view.time(),
+                    signals: self.minimap_signals.then_some(minimap::Signals {
+                        view: &self.view,
+                        service,
+                    }),
                 },
             );
             if let Some(start) = asked.start {
                 self.view.pan(start - self.view.start());
             }
+            if let Some(top) = asked.top {
+                self.view.set_top(top);
+            }
+            if let Some(signals) = asked.signals {
+                self.minimap_signals = signals;
+            }
             asked.height = asked.height.map(|h| minimap::height(h, full.height()));
             if let Some(height) = asked.height {
                 self.minimap_height = height;
             }
-            self.minimap_pointer = asked.pointer.take().map(|(time, under)| {
+            self.minimap_pointer = asked.pointer.take().map(|p| {
                 (
-                    time,
-                    status::annotations_text(under.iter().map(String::as_str)),
+                    p.time,
+                    p.channel,
+                    status::annotations_text(p.under.iter().map(String::as_str)),
                 )
             });
         }

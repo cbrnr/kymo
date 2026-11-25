@@ -343,7 +343,11 @@ impl KymoApp {
             viewer.set_default_span(settings.default_window_s);
             viewer.set_antialias(settings.antialias);
             viewer.set_scale_bars(settings.scale_bars);
-            viewer.set_minimap(settings.minimap, settings.minimap_height);
+            viewer.set_minimap(
+                settings.minimap,
+                settings.minimap_height,
+                settings.minimap_signals,
+            );
             viewer.set_remove_dc(settings.remove_dc);
             viewer.set_type_settings(settings.types.clone());
         }
@@ -823,6 +827,9 @@ impl KymoApp {
                 }
                 if let Some(height) = shown.minimap_height {
                     self.options.settings.minimap_height = height;
+                }
+                if let Some(signals) = shown.minimap_signals {
+                    self.options.settings.minimap_signals = signals;
                 }
             }
             State::Empty => {
@@ -1563,6 +1570,7 @@ impl KymoApp {
                 viewer.set_minimap(
                     self.options.settings.minimap,
                     self.options.settings.minimap_height,
+                    self.options.settings.minimap_signals,
                 );
                 viewer.set_remove_dc(self.options.settings.remove_dc);
                 viewer.set_type_settings(self.options.settings.types.clone());

@@ -28,6 +28,7 @@ const ANTIALIAS_KEY: &str = "kymo.antialias";
 const SCALE_BARS_KEY: &str = "kymo.scale_bars";
 const MINIMAP_KEY: &str = "kymo.minimap";
 const MINIMAP_HEIGHT_KEY: &str = "kymo.minimap_height";
+const MINIMAP_SIGNALS_KEY: &str = "kymo.minimap_signals";
 const REMOVE_DC_KEY: &str = "kymo.remove_dc";
 const AUTO_SCALE_KEY: &str = "kymo.auto_scale_on_open";
 const THEME_KEY: &str = "kymo.theme";
@@ -120,6 +121,8 @@ pub struct Settings {
     /// The minimap's height, in points, as dragged (the window limits it further, see
     /// [`crate::ui::minimap::height`]).
     pub minimap_height: f32,
+    /// Whether the minimap shows a row per shown channel under the annotations.
+    pub minimap_signals: bool,
     /// Whether each trace is centered on its mean over the window (DC removal), of the types
     /// `types` has it for.
     pub remove_dc: bool,
@@ -147,6 +150,7 @@ impl Default for Settings {
             scale_bars: true,
             minimap: false,
             minimap_height: minimap::DEFAULT_HEIGHT,
+            minimap_signals: true,
             remove_dc: true,
             types: TypeSettings::default(),
             auto_scale_on_open: true,
@@ -185,6 +189,9 @@ impl Settings {
             minimap_height: get(MINIMAP_HEIGHT_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.minimap_height),
+            minimap_signals: get(MINIMAP_SIGNALS_KEY)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(defaults.minimap_signals),
             remove_dc: get(REMOVE_DC_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.remove_dc),
@@ -217,6 +224,7 @@ impl Settings {
         storage.set_string(SCALE_BARS_KEY, self.scale_bars.to_string());
         storage.set_string(MINIMAP_KEY, self.minimap.to_string());
         storage.set_string(MINIMAP_HEIGHT_KEY, self.minimap_height.to_string());
+        storage.set_string(MINIMAP_SIGNALS_KEY, self.minimap_signals.to_string());
         storage.set_string(REMOVE_DC_KEY, self.remove_dc.to_string());
         storage.set_string(CHANNEL_TYPES_KEY, format_types(&self.types));
         for name in OLD_TYPES {
@@ -250,6 +258,7 @@ impl Settings {
             } else {
                 minimap::DEFAULT_HEIGHT
             },
+            minimap_signals: self.minimap_signals,
             remove_dc: self.remove_dc,
             types: self.types,
             auto_scale_on_open: self.auto_scale_on_open,

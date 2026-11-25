@@ -111,22 +111,28 @@ impl Spread {
         if width == 0 || duration.is_nan() || duration <= 0.0 {
             return out;
         }
-        let spans: Vec<(usize, Range<usize>)> = self
-            .parts
-            .iter()
-            .map(|p| (p.bucket as usize, column_span(&p.time, duration, width)))
-            .collect();
+        // Runs of buckets that lie in the same columns, in time order: each bucket's parts
+        // in turn, a bucket in several parts in each of their runs.
+        let mut runs: Vec<(Range<usize>, Range<usize>)> = Vec::new();
+        for p in &self.parts {
+            let bucket = p.bucket as usize;
+            let span = column_span(&p.time, duration, width);
+            match runs.last_mut() {
+                Some((buckets, last)) if *last == span && buckets.end >= bucket => {
+                    buckets.end = bucket + 1;
+                }
+                _ => runs.push((bucket..bucket + 1, span)),
+            }
+        }
         for (row, column) in out.chunks_exact_mut(width as usize).enumerate() {
             let values = &self.values[row * self.buckets..(row + 1) * self.buckets];
-            for (bucket, span) in &spans {
-                let v = values[*bucket];
-                if v.is_nan() {
-                    continue;
-                }
+            for (buckets, span) in &runs {
+                // `f32::max` leaves NaN (no samples) out.
+                let v = values[buckets.clone()]
+                    .iter()
+                    .fold(f32::NAN, |m, &v| m.max(v));
                 for c in &mut column[span.clone()] {
-                    if c.is_nan() || v > *c {
-                        *c = v;
-                    }
+                    *c = c.max(v);
                 }
             }
         }

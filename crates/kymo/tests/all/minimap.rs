@@ -1,11 +1,12 @@
 //! The minimap's geometry and pixels: its height, where times and the window lie on it,
-//! where a press moves the window, and how its row of pixels lays the marks.
+//! where a press moves the window, how its row of pixels lays the marks, and how bright the
+//! signals' rows are and which texture rows they and the channels' marks lie in.
 
 use eframe::egui::{Color32, Rangef};
 use kymo::annotations::{AnnotationColor, Mark, Marks, Span};
 use kymo::ui::minimap::{
-    DEFAULT_HEIGHT, MAX_FRACTION, MIN_HEIGHT, MIN_WINDOW, height, pixels, start_for, time_at,
-    window_on, x_at,
+    DEFAULT_HEIGHT, MAX_FRACTION, MIN_HEIGHT, MIN_WINDOW, height, levels, pixels, row_pixels,
+    signal_pixels, start_for, texture_row, texture_rows, time_at, window_on, x_at,
 };
 use proptest::prelude::*;
 
@@ -139,4 +140,103 @@ fn the_row_of_pixels_lays_lines_over_bands() {
     for c in [0, 1, 8, 9] {
         assert_eq!(row[c], background, "{c}");
     }
+}
+
+#[test]
+fn levels_follow_the_spread_over_the_channels_median() {
+    // The median is 4: a quarter of it and less is the darkest, eight times it and more the
+    // brightest, in octaves between; columns without samples stay NaN.
+    let got = levels(&[4.0, 1.0, 0.0, f32::NAN, 32.0, 100.0, 8.0, 4.0, 2.0]);
+    assert_eq!(got[0], 0.4);
+    assert_eq!(got[1], 0.0);
+    assert_eq!(got[2], 0.0);
+    assert!(got[3].is_nan());
+    assert_eq!(got[4], 1.0);
+    assert_eq!(got[5], 1.0);
+    assert_eq!(got[6], 0.6);
+    assert_eq!(got[8], 0.2);
+    // Gain and offset don't matter: the spread is in the channel's own units.
+    let scaled: Vec<f32> = [4.0, 1.0, 32.0, 8.0, 2.0].map(|v: f32| v * 1e-6).to_vec();
+    assert_eq!(levels(&scaled), levels(&[4.0, 1.0, 32.0, 8.0, 2.0]));
+    // A channel flat mostly (a stim channel) is the brightest where it spreads at all.
+    assert_eq!(levels(&[0.0, 0.0, 3.0, 0.0]), [0.0, 0.0, 1.0, 0.0]);
+    assert!(levels(&[f32::NAN, f32::NAN]).iter().all(|v| v.is_nan()));
+    assert!(levels(&[]).is_empty());
+}
+
+#[test]
+fn rows_share_texture_rows_only_where_they_outnumber_the_pixels() {
+    assert_eq!(texture_rows(4, 48), 4);
+    assert_eq!(texture_rows(256, 48), 48);
+    assert_eq!(texture_rows(0, 48), 0);
+    assert_eq!(texture_rows(3, 0), 1);
+    // One texture row per row.
+    assert_eq!(
+        (0..4).map(|r| texture_row(r, 4, 4)).collect::<Vec<_>>(),
+        [0, 1, 2, 3]
+    );
+    // Every texture row gets rows, in order.
+    let rows: Vec<usize> = (0..256).map(|r| texture_row(r, 256, 48)).collect();
+    assert!(rows.windows(2).all(|w| w[1] == w[0] || w[1] == w[0] + 1));
+    assert_eq!((rows[0], rows[255]), (0, 47));
+}
+
+#[test]
+fn signal_rows_show_the_brightest_of_their_channels_and_gaps_empty() {
+    let background = Color32::from_rgb(10, 10, 10);
+    let dark = Color32::from_rgb(30, 30, 30);
+    let bright = Color32::from_rgb(200, 200, 200);
+    let a = [0.0, 1.0, f32::NAN, 0.5];
+    let b = [1.0, 0.0, f32::NAN, f32::NAN];
+    let c = [0.0, 0.0, 0.0, 0.0];
+    // Four rows in two texture rows: a and b share the first, c and an unread one the second.
+    let pixels = signal_pixels(
+        &[Some(&a), Some(&b), Some(&c), None],
+        4,
+        2,
+        background,
+        (dark, bright),
+    );
+    assert_eq!(
+        pixels[..4],
+        [bright, bright, background, dark.lerp_to_gamma(bright, 0.5)]
+    );
+    assert_eq!(pixels[4..], [dark; 4]);
+    // A row each.
+    let pixels = signal_pixels(&[Some(&a), Some(&b)], 4, 2, background, (dark, bright));
+    assert_eq!(pixels[4..], [bright, dark, background, background]);
+}
+
+#[test]
+fn channel_marks_lie_in_their_rows_and_blend_once_per_color() {
+    let red = Color32::from_rgb(200, 0, 0);
+    let green = Color32::from_rgb(0, 200, 0);
+    let mark = |columns, span, color| Mark {
+        columns,
+        span,
+        color,
+    };
+    let marks = Marks {
+        bands: vec![
+            // Rows 0 and 1 share the first texture row: their bands of one color blend
+            // once where they overlap.
+            mark(0..3, Span::Row(0), AnnotationColor::Palette(0)),
+            mark(2..4, Span::Row(1), AnnotationColor::Palette(0)),
+            mark(1..2, Span::Row(3), AnnotationColor::Palette(1)),
+            // Over the strip's height: the row of pixels has it, not the rows.
+            mark(0..6, Span::All, AnnotationColor::Palette(1)),
+        ],
+        lines: vec![mark(5..6, Span::Row(2), AnnotationColor::Palette(1))],
+        labels: vec![],
+    };
+    let color_of = |c| match c {
+        AnnotationColor::Palette(0) => red,
+        _ => green,
+    };
+    let pixels = row_pixels(&marks, 4, 6, 2, color_of);
+    let band = Color32::TRANSPARENT.blend(red.gamma_multiply(0.5));
+    let none = Color32::TRANSPARENT;
+    assert_eq!(pixels[..6], [band, band, band, band, none, none]);
+    let green_band = Color32::TRANSPARENT.blend(green.gamma_multiply(0.5));
+    assert_eq!(pixels[6..], [none, green_band, none, none, none, green]);
 }

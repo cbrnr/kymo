@@ -3,6 +3,7 @@
 ## [UNRELEASED] · 2026-11-25
 ### ✨ Added
 - Add a minimap below the traces (View → Show Minimap) that shows the annotations of the whole recording and where the window is ([#11](https://github.com/cbrnr/kymo/pull/11) by [Clemens Brunner](https://github.com/cbrnr)).
+- Add a row per channel to the minimap that shows where the signals are large, flat or missing, with channel annotations in their rows and the window spanning the channels on screen (Show Signals in the minimap's right-click menu and in Settings) ([#12](https://github.com/cbrnr/kymo/pull/12) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🌀 Changed
 - Raise the interface's contrast in both themes, draw text closer to how macOS does, and color selections in the system's accent color ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).
