@@ -98,10 +98,15 @@ pub enum Action {
     MergeAnnotations,
     /// Clears the annotation selection.
     Deselect,
+    /// Selects every channel in the channel list; a text field with the keyboard selects
+    /// its text instead.
+    SelectAllChannels,
+    SelectBadChannels,
+    DeselectChannels,
 }
 
 impl Action {
-    pub const ALL: [Action; 55] = [
+    pub const ALL: [Action; 58] = [
         Action::Open,
         Action::OpenRecent(0),
         Action::ClearRecent,
@@ -157,6 +162,9 @@ impl Action {
         Action::DeleteAnnotation,
         Action::MergeAnnotations,
         Action::Deselect,
+        Action::SelectAllChannels,
+        Action::SelectBadChannels,
+        Action::DeselectChannels,
     ];
 
     /// The name in menus and the shortcut overview.
@@ -218,6 +226,9 @@ impl Action {
             Action::DeleteAnnotation => "Delete",
             Action::MergeAnnotations => "Merge Annotations",
             Action::Deselect => "Deselect",
+            Action::SelectAllChannels => "Select All Channels",
+            Action::SelectBadChannels => "Select Bad Channels",
+            Action::DeselectChannels => "Deselect All Channels",
         }
     }
 

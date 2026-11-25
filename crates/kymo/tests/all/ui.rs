@@ -347,6 +347,127 @@ fn clicking_a_name_toggles_bad() {
     assert!(!viewer(&harness).view().is_bad(a2));
 }
 
+/// Bad marks can be undone and redone, however they were made: a click on a trace's name,
+/// the selection bar. They don't mark the annotations edited.
+#[test]
+fn bad_marks_undo_and_redo() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let layout = viewer(&harness).layout().unwrap();
+    let rows = viewer(&harness).view().rows() as f32;
+    let row_y = |i: f32| layout.names.top() + (i + 0.5) * layout.names.height() / rows;
+    let bad = |h: &Harness<'_, KymoApp>| -> Vec<u32> {
+        viewer(h).view().bad_channels().map(|c| c.0).collect()
+    };
+    let undo = |h: &mut Harness<'_, KymoApp>| press(h, command(), Key::Z);
+    let redo = |h: &mut Harness<'_, KymoApp>| press(h, command() | Modifiers::SHIFT, Key::Z);
+
+    click(
+        &mut harness,
+        egui::pos2(layout.names.center().x, row_y(1.0)),
+    );
+    assert_eq!(bad(&harness), [1]);
+    assert!(!viewer(&harness).edited());
+    undo(&mut harness);
+    assert!(bad(&harness).is_empty());
+    redo(&mut harness);
+    assert_eq!(bad(&harness), [1]);
+
+    // The bar's marks, one step.
+    click_in_list(&mut harness, Role::Label, "A1");
+    harness
+        .get_by_role_and_label(Role::Label, "A2")
+        .click_modifiers(command());
+    harness.run_steps(2);
+    menu_path(&mut harness, &["Mark", "Mark 1 Channel as Bad"]);
+    assert_eq!(bad(&harness), [0, 1]);
+    menu_path(&mut harness, &["Mark", "Mark 2 Channels as Good"]);
+    assert!(bad(&harness).is_empty());
+    undo(&mut harness);
+    assert_eq!(bad(&harness), [0, 1]);
+    assert!(!viewer(&harness).edited());
+}
+
+/// A click anywhere on a row of the channel list selects it, and takes the only selected row
+/// out of the selection again; a selected row shows it under the pointer too, and the names
+/// beside the traces don't show the selection. A row's checkbox says on hover what a click
+/// does.
+#[test]
+fn a_click_on_the_selected_row_deselects_it() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = fonts_window(file.path(), options());
+    ready(&mut harness);
+    let layout = viewer(&harness).layout().unwrap();
+    let rows = viewer(&harness).view().rows() as f32;
+    // A2's name beside the traces, right of the name; in its row of the list, between the
+    // name and the Bad toggle.
+    let name_spot = egui::pos2(
+        layout.names.right() - 6.0,
+        layout.names.top() + 1.5 * layout.names.height() / rows,
+    );
+    // Where the list has scrolled to, and the pointer on the row: below and right of the
+    // spot, so the pointer drawn there doesn't cover it.
+    let row_spot = |h: &Harness<'_, KymoApp>| {
+        h.get_by_label("Show A2").rect().center() + egui::vec2(40.0, 0.0)
+    };
+    let on_row = egui::vec2(4.0, 6.0);
+    let away = egui::pos2(900.0, 650.0);
+    // The pixels at both spots, the pointer at `pointer` (on A2's row without one).
+    let pixels = |h: &mut Harness<'_, KymoApp>, pointer: Option<egui::Pos2>| {
+        let row_spot = row_spot(h);
+        hover(h, pointer.unwrap_or(row_spot + on_row));
+        h.run_steps(2);
+        let ppp = h.ctx.pixels_per_point();
+        let image = h.render().unwrap();
+        let at = |p: egui::Pos2| image.get_pixel((p.x * ppp) as u32, (p.y * ppp) as u32).0;
+        (at(name_spot), at(row_spot))
+    };
+    let (name, row) = pixels(&mut harness, Some(away));
+    let (_, hovered) = pixels(&mut harness, None);
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(1)]
+    );
+    let (selected_name, selected_row) = pixels(&mut harness, Some(away));
+    assert_eq!(selected_name, name);
+    assert_ne!(selected_row, row);
+    let (_, selected_hovered) = pixels(&mut harness, None);
+    assert_ne!(selected_hovered, hovered);
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert!(viewer(&harness).view().selected().is_empty());
+    assert_eq!(pixels(&mut harness, Some(away)), (name, row));
+    // In a larger selection a click selects the row alone, as ever.
+    click_in_list(&mut harness, Role::Label, "A1");
+    harness
+        .get_by_role_and_label(Role::Label, "A2")
+        .click_modifiers(command());
+    harness.run_steps(2);
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(1)]
+    );
+    // Beside the name, too.
+    let name = harness.get_by_role_and_label(Role::Label, "A1").rect();
+    click(
+        &mut harness,
+        egui::pos2(name.right() + 8.0, name.center().y),
+    );
+    harness.run_steps(2);
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(0)]
+    );
+    // A checkbox says what a click does.
+    let checkbox = harness.get_by_label("Show A1").rect().center();
+    hover(&mut harness, checkbox);
+    assert!(tooltip(&mut harness, "Hide A1"));
+}
+
 /// The channel list shows units as the readout does: µV for EEG, mV for sEEG, whatever the
 /// file stores (uV for both here), in the type's row, as each type's channels share theirs;
 /// the channels' rows show none.
@@ -399,8 +520,9 @@ fn without_units_in_channel_rows_names_take_their_room() {
     };
     sidebar_to(&mut harness, 600.0);
     let whole = name(&harness).width();
-    // The room past its Bad toggle, up to the gap before its menu, which lines up with the
-    // type rows' menus.
+    // The room past its "Bad", up to the gap before its menu, which lines up with the type
+    // rows' menus.
+    mark_in_list(&mut harness, long, true);
     let bad = harness.get_by_label(&format!("{long} bad")).rect().right();
     let menu = harness.get_by_label(&format!("Options for {long}")).rect();
     let type_menu = harness.get_by_label("Options for EEG channels").rect();
@@ -1212,28 +1334,34 @@ fn the_channel_list_shows_hides_and_marks_bad() {
     click_in_list(&mut harness, Role::CheckBox, "Show EEG channels");
     assert_eq!(shown(&harness), [0, 1, 2, 3, 4]);
 
-    // The bad toggle.
+    // A bad channel says so; a good one doesn't.
     let ecg = kymo_core::ChannelId(3);
-    click_in_list(&mut harness, Role::Button, "ECG bad");
+    assert!(harness.query_by_label("ECG bad").is_none());
+    mark_in_list(&mut harness, "ECG", true);
     assert!(viewer(&harness).view().is_bad(ecg));
-    assert_eq!(toggled(&harness, Role::Button, "ECG bad"), Toggled::True);
-    click_in_list(&mut harness, Role::Button, "ECG bad");
+    harness.get_by_role_and_label(Role::Label, "ECG bad");
+    mark_in_list(&mut harness, "ECG", false);
     assert!(!viewer(&harness).view().is_bad(ecg));
+    assert!(harness.query_by_label("ECG bad").is_none());
 
-    // A click on a name scrolls the traces to it: three rows of five.
+    // A click on a row scrolls the traces to it if it is off screen, as little as it
+    // takes: three rows of five.
     for _ in 0..2 {
         harness.key_press_modifiers(command() | Modifiers::SHIFT, Key::Minus);
         harness.step();
     }
     assert_eq!(viewer(&harness).view().rows(), 3);
+    click_in_list(&mut harness, Role::Label, "Status");
+    assert_eq!(viewer(&harness).view().top(), 2.0);
     click_in_list(&mut harness, Role::Label, "EOG L");
     assert_eq!(viewer(&harness).view().top(), 2.0);
-    click_in_list(&mut harness, Role::Label, "A2");
-    assert_eq!(viewer(&harness).view().top(), 1.0);
+    click_in_list(&mut harness, Role::Label, "A1");
+    assert_eq!(viewer(&harness).view().top(), 0.0);
     // A type's name scrolls to its first shown channel.
     click_in_list(&mut harness, Role::Label, "EOG");
     assert_eq!(viewer(&harness).view().top(), 2.0);
     click_in_list(&mut harness, Role::Label, "A2");
+    assert_eq!(viewer(&harness).view().top(), 1.0);
     // A hidden channel's name doesn't scroll.
     click_in_list(&mut harness, Role::CheckBox, "Show A1");
     click_in_list(&mut harness, Role::Label, "A1");
@@ -1295,6 +1423,15 @@ fn the_channel_list_keeps_its_columns_while_scrolling() {
     kymo_testgen::write(&spec, file.path()).unwrap();
     let mut harness = window(file.path());
     ready(&mut harness);
+    // All marked bad, to show "Bad".
+    let n = viewer(&harness).document().recording.channels().len();
+    press(&mut harness, command(), Key::A);
+    menu_path(
+        &mut harness,
+        &["Mark", &format!("Mark {n} Channels as Bad")],
+    );
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
     assert!(harness.query_by_label("LONGCHANNELNAME1").is_none());
     let bad = harness.get_by_label("A1 bad").rect().left();
 
@@ -1316,7 +1453,7 @@ fn the_channel_list_keeps_its_columns_while_scrolling() {
     assert_eq!(harness.get_by_label("Status bad").rect().left(), bad);
     assert!(
         long.right() < bad,
-        "{long:?} reaches the bad toggles at {bad}"
+        "{long:?} reaches the bad marks at {bad}"
     );
     // Codes have no unit, whatever the file says.
     assert!(harness.query_by_label("Boolean").is_none());
@@ -1330,7 +1467,11 @@ fn types_rows_give_their_rates() {
     use egui::accesskit::Role;
     // EEG Fz to Oz at 256 Hz and EEG DC at 512 Hz, Resp at 64 Hz, a trigger at 512 Hz.
     let file = TempFile::preset("edf+d-mixed");
-    let mut harness = window(file.path());
+    // Tall enough for every row above the selection bar.
+    let mut harness = window_from(
+        Harness::builder().with_size(egui::vec2(1200.0, 900.0)),
+        file.path(),
+    );
     ready(&mut harness);
     let rights: Vec<f32> = [
         "5 \u{b7} 256\u{2013}512 Hz",
@@ -1545,7 +1686,16 @@ fn the_channel_list_fits_its_width() {
     ));
     hover(&mut harness, egui::pos2(900.0, 650.0));
 
-    // Narrowest (200 points): no unit or rate, and nothing in the row past the sidebar.
+    // Narrowest (200 points): no unit or rate, and nothing in the row past the sidebar,
+    // "Bad" included (all marked so).
+    let n = viewer(&harness).document().recording.channels().len();
+    press(&mut harness, command(), Key::A);
+    menu_path(
+        &mut harness,
+        &["Mark", &format!("Mark {n} Channels as Bad")],
+    );
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
     sidebar_to(&mut harness, 100.0);
     let fz = row_of(&harness, "Fz");
     for label in ["\u{b5}V", "100 Hz"] {
@@ -1898,6 +2048,12 @@ fn channels_scaled_on_their_own_each_have_a_scale_bar() {
     assert_eq!(bars(&harness, ChannelKind::EEG), 1);
 }
 
+/// Marks channel `name` bad (or good) from its menu in the channel list.
+fn mark_in_list(harness: &mut Harness<'_, KymoApp>, name: &str, bad: bool) {
+    channel_options(harness, name);
+    menu_path(harness, &[if bad { "Mark as Bad" } else { "Mark as Good" }]);
+}
+
 /// Opens the menu ("⋯") at the end of channel `name`'s row in the channel list.
 fn channel_options(harness: &mut Harness<'_, KymoApp>, name: &str) {
     type_options(harness, name);
@@ -2049,10 +2205,10 @@ fn type_changes_show_complete_in_the_next_frame() {
     complete(&harness, "Scale Each Channel");
 }
 
-/// A click on a channel's name selects it, ⌘-click adds or takes one out, ⇧-click selects
-/// the rows from the last clicked; a selected row's menu acts on every selected channel
-/// (Other Types, filtered), a type's menu on its channels. Esc and a click below the rows
-/// clear the selection.
+/// A click in a channel's row selects it, ⌘-click adds or takes one out, ⇧-click selects
+/// the rows from the last clicked; the selection bar's Type menu acts on every selected
+/// channel (Other Types, filtered), a row's menu on its channel alone, a type's menu on its
+/// channels. Esc and a click on the only selected row clear the selection.
 #[test]
 fn selected_channels_change_type_together() {
     use egui::accesskit::Role;
@@ -2074,20 +2230,21 @@ fn selected_channels_change_type_together() {
         .click_modifiers(command());
     harness.run_steps(2);
     assert_eq!(selected(&harness), [0, 2]);
-    // A row out of the selection acts on itself alone.
-    channel_options(&mut harness, "A2");
-    let titled = |h: &Harness<'_, KymoApp>, title: &str| {
-        h.query_all_by_role_and_label(Role::Label, title).count()
+    // A row's menu acts on itself alone, selected or not, without a title, as it opens at
+    // the row; the bar acts on the selection.
+    let named = |h: &Harness<'_, KymoApp>, name: &str| {
+        h.query_all_by_role_and_label(Role::Label, name).count()
     };
-    // Its name in the list (and the traces), and the menu's title.
-    assert_eq!(titled(&harness, "A2"), titled(&harness, "A1") + 1);
-    assert_eq!(titled(&harness, "2 channels"), 0);
-    close_menu(&mut harness);
+    for name in ["A2", "A1"] {
+        let before = named(&harness, name);
+        channel_options(&mut harness, name);
+        assert!(harness.query_by_label("Mark 2 Channels as Bad").is_none());
+        assert_eq!(named(&harness, name), before);
+        close_menu(&mut harness);
+    }
     assert_eq!(selected(&harness), [0, 2]);
-
-    channel_options(&mut harness, "A1");
-    harness.get_by_label("2 channels");
-    menu_path(&mut harness, &[CHANGE_TYPE, OTHER_TYPES]);
+    harness.get_by_label("2 channels selected");
+    menu_path(&mut harness, &["Type", OTHER_TYPES]);
     harness.get_by_label("Filter Other Types").type_text("temp");
     harness.run_steps(2);
     // Not the recording's types.
@@ -2119,9 +2276,7 @@ fn selected_channels_change_type_together() {
     assert!(selected(&harness).is_empty());
     click_in_list(&mut harness, Role::Label, "A2");
     assert_eq!(selected(&harness), [1]);
-    // The last row, Status, and below it.
-    let last = harness.get_by_label("Show Status").rect();
-    click(&mut harness, last.center() + egui::vec2(0.0, 30.0));
+    click_in_list(&mut harness, Role::Label, "A2");
     assert!(selected(&harness).is_empty());
 
     // The type's menu returns them both, its file's type differing.
@@ -2130,10 +2285,10 @@ fn selected_channels_change_type_together() {
     assert_eq!(order(&harness), [0, 1, 2, 3, 4]);
 }
 
-/// A channel row's menu ("⋯") shows only while the pointer is on its row or the row is
-/// selected; it takes its room either way, in line with the type rows' menus.
+/// A channel row's menu ("⋯") shows only while the pointer is on its row, selected or not;
+/// it takes its room either way, in line with the type rows' menus.
 #[test]
-fn a_channels_menu_shows_on_its_row_hovered_or_selected() {
+fn a_channels_menu_shows_on_its_row_hovered() {
     use egui::accesskit::Role;
     let file = typed_preset();
     let mut harness = fonts_window(file.path(), options());
@@ -2161,8 +2316,160 @@ fn a_channels_menu_shows_on_its_row_hovered_or_selected() {
     let menu = harness.get_by_label("Options for A2").rect();
     let type_menu = harness.get_by_label("Options for EEG channels").rect();
     assert!((menu.right() - type_menu.right()).abs() < 0.5);
+    // Selected, it acts on its row alone all the same: not shown without the pointer.
     click_in_list(&mut harness, Role::Label, "A2");
-    assert!(contrast(&mut harness, away) > 40);
+    assert!(viewer(&harness).view().is_selected(kymo_core::ChannelId(1)));
+    assert!(contrast(&mut harness, away) < 5);
+}
+
+/// "Bad" shows on a bad channel's row alone, hovered or not, and isn't a button; the name
+/// keeps its color. The
+/// selection bar marks the selected channels bad or good, saying how many it marks; a
+/// channel's menu marks it alone.
+#[test]
+fn bad_shows_on_bad_rows_and_menus_mark_bad() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = fonts_window(file.path(), options());
+    ready(&mut harness);
+    let row = harness.get_by_label("Show A2").rect().center() + egui::vec2(60.0, 0.0);
+    for pointer in [egui::pos2(900.0, 650.0), row] {
+        hover(&mut harness, pointer);
+        harness.run_steps(2);
+        assert!(harness.query_by_label("A2 bad").is_none());
+    }
+    // The brightest pixel of EOG L's name in the list.
+    let name = |h: &mut Harness<'_, KymoApp>| {
+        let r = h.get_by_role_and_label(Role::Label, "EOG L").rect();
+        let ppp = h.ctx.pixels_per_point();
+        let image = h.render().unwrap();
+        let (x0, x1) = ((r.left() * ppp) as u32, (r.right() * ppp) as u32);
+        let (y0, y1) = ((r.top() * ppp) as u32, (r.bottom() * ppp) as u32);
+        (x0..x1)
+            .flat_map(|x| (y0..y1).map(move |y| (x, y)))
+            .map(|(x, y)| image.get_pixel(x, y).0)
+            .max_by_key(|p| p.iter().map(|&c| u32::from(c)).sum::<u32>())
+            .unwrap()
+    };
+    // A bad channel's name keeps its color: "Bad" says it.
+    let good = name(&mut harness);
+    mark_in_list(&mut harness, "EOG L", true);
+    hover(&mut harness, egui::pos2(900.0, 650.0));
+    assert_eq!(name(&mut harness), good);
+    mark_in_list(&mut harness, "EOG L", false);
+    mark_in_list(&mut harness, "A2", true);
+    let label = harness.get_by_label("A2 bad");
+    assert_eq!(label.accesskit_node().role(), Role::Label);
+    // A click on it does nothing (but select the row).
+    label.click();
+    harness.run_steps(2);
+    assert!(
+        viewer(&harness)
+            .view()
+            .is_bad(channel_named(&harness, "A2"))
+    );
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+
+    // A2 and EOG L bad, A1 good: the selection bar's Mark menu marks either.
+    let (a1, a2, eog) = (
+        channel_named(&harness, "A1"),
+        channel_named(&harness, "A2"),
+        channel_named(&harness, "EOG L"),
+    );
+    mark_in_list(&mut harness, "EOG L", true);
+    click_in_list(&mut harness, Role::Label, "A1");
+    for name in ["A2", "EOG L"] {
+        harness
+            .get_by_role_and_label(Role::Label, name)
+            .click_modifiers(command());
+        harness.run_steps(2);
+    }
+    assert_eq!(viewer(&harness).view().selected().len(), 3);
+    let bad = |h: &Harness<'_, KymoApp>| {
+        let view = viewer(h).view();
+        [a1, a2, eog].map(|c| view.is_bad(c))
+    };
+    menu_path(&mut harness, &["Mark"]);
+    assert!(harness.query_by_label("Mark 2 Channels as Good").is_some());
+    menu_path(&mut harness, &["Mark 1 Channel as Bad"]);
+    assert_eq!(bad(&harness), [true; 3]);
+    menu_path(&mut harness, &["Mark"]);
+    assert!(harness.query_by_label("Mark 3 Channels as Bad").is_none());
+    menu_path(&mut harness, &["Mark 3 Channels as Good"]);
+    assert_eq!(bad(&harness), [false; 3]);
+
+    // A row out of the selection marks itself alone.
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+    channel_options(&mut harness, "A2");
+    assert!(harness.query_by_label("Mark as Good").is_none());
+    menu_path(&mut harness, &["Mark as Bad"]);
+    assert_eq!(bad(&harness), [false, true, false]);
+}
+
+/// ⌘A selects every channel, Edit → Select Bad Channels the bad ones and Deselect All
+/// Channels none; a type's menu selects its channels.
+#[test]
+fn channels_are_selected_all_bad_or_by_type() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let selected = |h: &Harness<'_, KymoApp>| -> Vec<u32> {
+        viewer(h).view().selected().iter().map(|c| c.0).collect()
+    };
+    let perform = |h: &mut Harness<'_, KymoApp>, action: Action| {
+        let ctx = h.ctx.clone();
+        h.state_mut().perform(&ctx, action);
+        h.run_steps(2);
+    };
+    press(&mut harness, command(), Key::A);
+    assert_eq!(selected(&harness), [0, 1, 2, 3, 4]);
+    harness.get_by_label("5 channels selected");
+    perform(&mut harness, Action::DeselectChannels);
+    assert!(selected(&harness).is_empty());
+    // Hidden ones too.
+    click_in_list(&mut harness, Role::CheckBox, "Show Status");
+    press(&mut harness, command(), Key::A);
+    assert_eq!(selected(&harness), [0, 1, 2, 3, 4]);
+
+    mark_in_list(&mut harness, "A2", true);
+    mark_in_list(&mut harness, "ECG", true);
+    perform(&mut harness, Action::SelectBadChannels);
+    assert_eq!(selected(&harness), [1, 3]);
+
+    // A type's menu has no title, as it opens at the type's row.
+    let named =
+        |h: &Harness<'_, KymoApp>| h.query_all_by_role_and_label(Role::Label, "EEG").count();
+    let before = named(&harness);
+    type_options(&mut harness, "EEG channels");
+    assert_eq!(named(&harness), before);
+    menu_path(&mut harness, &["Select 2 EEG Channels"]);
+    assert_eq!(selected(&harness), [0, 1]);
+}
+
+/// The selection bar shows only while channels are selected; its buttons stay within a
+/// narrow sidebar, wrapping if they must.
+#[test]
+fn the_selection_bar_shows_with_a_selection() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    assert!(harness.query_by_label_contains("selected").is_none());
+    assert!(harness.query_by_label("Scale").is_none());
+    // The narrowest sidebar.
+    sidebar_to(&mut harness, 0.0);
+    click_in_list(&mut harness, Role::Label, "A1");
+    harness.get_by_label("1 channel selected");
+    let edge = viewer(&harness).layout().unwrap().names.left() - 8.0;
+    for button in ["Mark", "Type", "Scale"] {
+        let rect = harness.get_by_label(button).rect();
+        assert!(rect.right() <= edge, "{button}: {rect:?} past {edge}");
+    }
+    click_in_list(&mut harness, Role::Label, "A1");
+    assert!(harness.query_by_label("Scale").is_none());
 }
 
 /// Closes an open menu, as Esc does.
@@ -2302,7 +2609,7 @@ fn channels_save_and_load_through_the_file_menu() {
     );
 
     change_type(&mut harness, "ECG", &["EEG"]);
-    click_in_list(&mut harness, egui::accesskit::Role::Button, "A2 bad");
+    mark_in_list(&mut harness, "A2", true);
     assert!(viewer(&harness).view().is_bad(a2));
     // Without an extension, .tsv is added.
     harness
@@ -2355,7 +2662,7 @@ fn loading_channels_takes_what_it_can_and_says_what_it_left() {
     let [a1, a2, ecg] = [0, 1, 3].map(kymo_core::ChannelId);
     let status = channel_named(&harness, "Status");
     assert!(!stim_annotations(&harness).is_empty());
-    click_in_list(&mut harness, egui::accesskit::Role::Button, "A2 bad");
+    mark_in_list(&mut harness, "A2", true);
 
     let path = dir.path().join("sub-01_channels.tsv");
     std::fs::write(
@@ -4394,6 +4701,8 @@ fn the_description_field_names_new_annotations() {
     harness.get_by_label(field).type_text("spike");
     harness.run_steps(2);
     assert_eq!(viewer(&harness).description(), "spike");
+    // ⌘A selected the field's text, not the channels.
+    assert!(viewer(&harness).view().selected().is_empty());
     // ⌘Z and ⇧⌘Z in the field undo and redo the typing (egui undoes quick typing at
     // once); so do the menu's Undo and Redo, which hand the field their keys.
     let shift_command = command() | Modifiers::SHIFT;
@@ -4748,8 +5057,7 @@ fn traces_take_their_types_colors() {
     }
 
     // A bad channel is grayed out, whatever its type.
-    harness.get_by_label("ECG bad").click();
-    harness.run_steps(2);
+    mark_in_list(&mut harness, "ECG", true);
     let after = counts(&mut harness);
     assert!(after[2][2] < before[2][2] / 20, "{:?}", after[2]);
 }
@@ -5097,8 +5405,7 @@ fn traces_take_picked_type_colors() {
     assert!(named.iter().all(|&n| n > 5), "{named:?}");
 
     // A bad channel stays gray.
-    harness.get_by_label("EOG L bad").click();
-    harness.run_steps(2);
+    mark_in_list(&mut harness, "EOG L", true);
     let bad = count(&mut harness, green);
     assert!(bad < after.1 / 20, "{bad}");
 }
@@ -6172,7 +6479,8 @@ fn unsaved_changes_are_asked_about() {
 fn every_channel_type_has_a_row_a_color_and_a_swatch() {
     use egui::accesskit::Role;
     let file = TempFile::preset("edf+c-kinds");
-    let mut harness = screenshot_window(file.path());
+    // Tall enough for every type's row, collapsed, above the selection bar.
+    let mut harness = screenshot_window_sized(file.path(), egui::vec2(1200.0, 800.0));
     ready(&mut harness);
     // Top to bottom, the types of edf+c-kinds: EEG, MEG, EOG, ECG, the other signals,
     // stim; none it lacks.
@@ -6316,12 +6624,15 @@ fn the_channel_list_starts_at_the_top_for_each_recording() {
         scroll(&mut harness, egui::vec2(0.0, -2000.0), Modifiers::NONE);
     }
     harness.run_steps(2);
-    assert!(harness.query_by_label("A1 bad").is_none(), "not scrolled");
+    assert!(harness.query_by_label("Show A1").is_none(), "not scrolled");
 
     let ctx = harness.ctx.clone();
     harness.state_mut().open(&ctx, second.path().to_owned());
     ready(&mut harness);
-    assert!(harness.query_by_label("A1 bad").is_some(), "still scrolled");
+    assert!(
+        harness.query_by_label("Show A1").is_some(),
+        "still scrolled"
+    );
 }
 
 /// A file dropped on the window, as egui-winit hands it over.
@@ -7419,7 +7730,7 @@ fn has_selection(harness: &Harness<'_, KymoApp>) -> bool {
 }
 
 /// Channels don't move: a drag on a name or a row's gray text moves nothing and selects no
-/// text, and a click on a name shows it in the traces. A stream's row starts with a small
+/// text, and a click on a name shows it in the traces if it is off screen. A stream's row starts with a small
 /// chevron, left of its checkbox.
 #[test]
 fn names_click_and_drag_nothing() {
@@ -7456,7 +7767,7 @@ fn names_click_and_drag_nothing() {
         harness.key_press_modifiers(command() | Modifiers::SHIFT, Key::Minus);
         harness.step();
     }
-    click_in_list(&mut harness, egui::accesskit::Role::Label, "EOG L");
+    click_in_list(&mut harness, egui::accesskit::Role::Label, "Status");
     assert_eq!(viewer(&harness).view().top(), 2.0);
 
     let file = streams_xdf();
@@ -7905,7 +8216,7 @@ fn channels_are_named_within_their_streams() {
     for rect in [x, gyro_x, pos_0] {
         assert!(rect.right() < sidebar, "{rect:?}");
     }
-    // The names' column is as wide as the short names: the Bad toggles follow closer
+    // The names' column is as wide as the short names: "Bad" follows closer
     // than the full names would fit.
     let full_width = {
         let font = egui::TextStyle::Body.resolve(&harness.ctx.global_style());
@@ -7915,6 +8226,7 @@ fn channels_are_named_within_their_streams() {
                 .x
         })
     };
+    mark_in_list(&mut harness, "Gyro X", true);
     let bad = harness.get_by_label("Gyro X bad").rect();
     assert!(
         bad.left() - gyro_x.left() < full_width,
@@ -8639,6 +8951,7 @@ fn a_channel_scales_alone() {
     assert_eq!(harness.query_all_by_label(ALONE_LABEL).count(), 1);
     let second_name = name(&harness, second);
     assert_eq!(painted(&harness, "\u{2026}"), Vec::<String>::new());
+    mark_in_list(&mut harness, &second_name, true);
     let label = harness.get_by_role_and_label(Role::Label, &second_name);
     let mark = harness.get_by_label(ALONE_LABEL).rect();
     let bad = harness.get_by_label(&format!("{second_name} bad")).rect();
@@ -8782,6 +9095,7 @@ fn the_mark_widens_the_names_column() {
     harness.run_steps(2);
     assert!(viewer(&harness).view().scaled_alone(id));
     assert_eq!(painted(&harness, "\u{2026}"), shortened);
+    mark_in_list(&mut harness, long, true);
     let name = harness.get_by_role_and_label(Role::Label, long).rect();
     let mark = harness.get_by_label(ALONE_LABEL).rect();
     let bad = harness.get_by_label(&format!("{long} bad")).rect();

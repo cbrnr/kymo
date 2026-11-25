@@ -1,6 +1,9 @@
 # Changelog
 
 ## [UNRELEASED] · 2026-11-25
+### 🌀 Changed
+- Rework channel selection in the sidebar, with a bar below the list that acts on the selected channels ([#16](https://github.com/cbrnr/kymo/pull/16) by [Clemens Brunner](https://github.com/cbrnr)).
+
 ### 🔧 Fixed
 - Stop the channel names column from being dragged wider than its longest name needs ([#15](https://github.com/cbrnr/kymo/pull/15) by [Clemens Brunner](https://github.com/cbrnr)).
 

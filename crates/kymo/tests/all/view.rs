@@ -597,6 +597,25 @@ fn scrolls_to_a_shown_channel() {
     assert_eq!(view.top(), 3.0);
 }
 
+/// Revealing a channel scrolls only as far as it takes to show its whole row.
+#[test]
+fn reveals_a_channel_by_scrolling_as_little_as_needed() {
+    let (_, mut view) = state();
+    // 32 channels, 20 rows: on screen, nothing moves.
+    assert!(view.reveal(ChannelId(19)));
+    assert_eq!(view.top(), 0.0);
+    // Below: the last row.
+    assert!(view.reveal(ChannelId(25)));
+    assert_eq!(view.visible_rows(), 6..26);
+    // Above: the first row; partly on screen counts as off.
+    view.set_top(4.5);
+    assert!(view.reveal(ChannelId(4)));
+    assert_eq!(view.top(), 4.0);
+    view.set_shown(ChannelId(3), false);
+    assert!(!view.reveal(ChannelId(3)));
+    assert!(!view.reveal(ChannelId(99)));
+}
+
 #[test]
 fn bad_channels_stay_bad_while_hidden() {
     let (_, mut view) = state();

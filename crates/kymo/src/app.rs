@@ -577,6 +577,7 @@ impl KymoApp {
             editing: viewer.is_some_and(Viewer::editing),
             selected: viewer.is_some_and(|v| v.selected().is_some()),
             channels_selected: viewer.is_some_and(|v| !v.view().selected().is_empty()),
+            bad_channels: viewer.is_some_and(|v| v.view().bad_channels().next().is_some()),
             dragging: viewer.is_some_and(Viewer::dragging),
             measured: viewer.is_some_and(Viewer::measured),
             can_undo: viewer.is_some_and(|v| v.history().can_undo()),
@@ -887,9 +888,10 @@ impl KymoApp {
             return;
         }
         match action {
-            // A text field with the keyboard undoes its own typing; on macOS the menu takes
-            // ⌘Z before the field sees it, so it is handed on.
-            Action::Undo | Action::Redo if state.typing => {
+            // A text field with the keyboard undoes its own typing, and selects its own text;
+            // on macOS the menu takes ⌘Z and ⌘A before the field sees them, so they are
+            // handed on.
+            Action::Undo | Action::Redo | Action::SelectAllChannels if state.typing => {
                 if let Some(event) = text_field_key(action) {
                     ctx.input_mut(|i| i.events.push(event));
                 }
@@ -1616,6 +1618,8 @@ struct AppMenuState {
     selected: bool,
     /// Whether channels are selected in the channel list, for Esc to clear.
     channels_selected: bool,
+    /// Whether any channel is bad, for Select Bad Channels.
+    bad_channels: bool,
     /// Whether a drag is changing an annotation: until it ends, nothing else may, and Esc
     /// takes it back.
     dragging: bool,
@@ -1642,6 +1646,8 @@ impl MenuState for AppMenuState {
         let now = match action {
             // Closes the window in front, without a recording too.
             Action::Close if self.overlay => return true,
+            // Selects a text field's text, without a recording too.
+            Action::SelectAllChannels if self.typing => return true,
             Action::Undo => self.can_undo && !self.dragging || self.typing,
             Action::Redo => self.can_redo && !self.dragging || self.typing,
             Action::DeleteAnnotation => self.selected && !self.dragging,
@@ -1650,7 +1656,10 @@ impl MenuState for AppMenuState {
                 self.selected || self.dragging || self.measured || self.channels_selected
             }
             Action::ExportShownAnnotations => self.shown,
-            Action::ScaleSelectedUp | Action::ScaleSelectedDown => self.channels_selected,
+            Action::ScaleSelectedUp | Action::ScaleSelectedDown | Action::DeselectChannels => {
+                self.channels_selected
+            }
+            Action::SelectBadChannels => self.bad_channels,
             Action::OpenRecent(index) => usize::from(index) < self.recent.len(),
             Action::ClearRecent => !self.recent.is_empty(),
             _ if action.stim_checked(self.stim_options).is_some() => self.stim,
@@ -1676,11 +1685,13 @@ impl MenuState for AppMenuState {
     }
 }
 
-/// The key press a text field takes as `action`, for Undo and Redo: ⌘Z and ⇧⌘Z.
+/// The key press a text field takes as `action`, for Undo, Redo and Select All Channels:
+/// ⌘Z, ⇧⌘Z and ⌘A.
 pub fn text_field_key(action: Action) -> Option<Event> {
-    let shift = match action {
-        Action::Undo => false,
-        Action::Redo => true,
+    let (key, shift) = match action {
+        Action::Undo => (egui::Key::Z, false),
+        Action::Redo => (egui::Key::Z, true),
+        Action::SelectAllChannels => (egui::Key::A, false),
         _ => return None,
     };
     let mut modifiers = egui::Modifiers::COMMAND;
@@ -1691,7 +1702,7 @@ pub fn text_field_key(action: Action) -> Option<Event> {
         modifiers.ctrl = true;
     }
     Some(Event::Key {
-        key: egui::Key::Z,
+        key,
         physical_key: None,
         pressed: true,
         repeat: false,

@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use eframe::egui::{
     self, Align, Checkbox, Color32, CursorIcon, FontId, Frame, Id, Label, Layout, Margin, Response,
-    RichText, ScrollArea, Sense, TextStyle, Ui, UiBuilder, style::ScrollStyle, vec2,
+    RichText, ScrollArea, Sense, TextStyle, Ui, UiBuilder, WidgetText, style::ScrollStyle, vec2,
 };
 use kymo_core::{ChannelId, ChannelKind, Stream, StreamContent};
 
@@ -15,10 +15,13 @@ use crate::keymap::{Keymap, Platform};
 use crate::types::TypeSettings;
 use crate::ui::axis::{Clock, format_time};
 use crate::ui::color::{Choice, swatch};
-use crate::ui::palette::{annotation_color, bad_color, type_color};
+use crate::ui::elide_middle;
+use crate::ui::palette::{annotation_color, type_color};
 use crate::ui::readout::display_unit;
-use crate::ui::types::{Dots, Retype, Targets, channel_menu, menu_width, type_menu, type_swatch};
-use crate::ui::{elide_middle, text_button};
+use crate::ui::types::{
+    Dots, Retype, SCALE_WITH_TYPE, Targets, change_type_items, channel_menu, mark_label,
+    menu_width, type_menu, type_swatch,
+};
 use crate::view::ViewState;
 
 /// Runs `add_contents` in exactly the width `ui` offers, clipping whatever is wider. A panel
@@ -179,7 +182,15 @@ pub fn header_panel(
             });
         legend_rect = Some(panel.response.rect);
     }
-    let all_types = channel_list(ui, (recording, platform), document, view, types, rule);
+    let mut marks = None;
+    let all_types = channel_list(
+        ui,
+        (recording, platform),
+        document,
+        (view, &mut marks),
+        types,
+        rule,
+    );
     // On top of both lists, as each would take the drag near the line between them.
     if let Some(rect) = legend_rect {
         let folded = ui
@@ -196,6 +207,7 @@ pub fn header_panel(
         relabel,
         info,
         all_types,
+        marks,
     }
 }
 
@@ -207,7 +219,12 @@ pub struct HeaderResponse {
     pub info: bool,
     /// Whether a type's menu asked for the Channel Types window.
     pub all_types: bool,
+    /// Channels to mark bad (`true`) or good, which the viewer does so it can be undone.
+    pub marks: Marks,
 }
+
+/// Channels to mark bad (`true`) or good, if any.
+pub type Marks = Option<(Vec<ChannelId>, bool)>;
 
 /// The Format row's value: `text` and an ⓘ after it, one button that opens Recording Info
 /// (named "Recording Info" for screen readers, with `text` as its value, and the shortcut
@@ -487,6 +504,7 @@ fn legend_list(
                 Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
             let response = ui.add(checkbox);
             accessible_label(ui, &response, format!("Show {name}"));
+            let response = visibility_hint(response, checked, name);
             if response.changed() {
                 legend.set_all_shown(checked);
             }
@@ -605,6 +623,7 @@ fn legend_list(
                     let mut checked = shown;
                     let response = ui.add(Checkbox::without_text(&mut checked));
                     accessible_label(ui, &response, format!("Show {named}"));
+                    let response = visibility_hint(response, checked, &named);
                     if response.changed() {
                         legend.set_shown(stream, &description, checked);
                     }
@@ -766,6 +785,7 @@ fn legend_stream_row(row: &mut Ui, legend: &mut Legend, group: LegendGroup<'_>) 
         let checkbox = Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
         let response = ui.add(checkbox);
         accessible_label(ui, &response, format!("Show {name}"));
+        let response = visibility_hint(response, checked, &name);
         if response.changed() {
             legend.set_stream_shown(stream, checked);
         }
@@ -907,7 +927,7 @@ impl Columns {
     /// Everything in full where it fits; with too little room the unit narrows first, down
     /// to `min_unit`, then the name, down to `min_name`; then the unit drops out, the name
     /// widening again into the room it leaves. (A channel's type and rate are in the row it
-    /// is under.) `fixed` is what every row has besides (the checkbox, the Bad toggle and
+    /// is under.) `fixed` is what every row has besides (the checkbox, the room for "Bad" and
     /// the gaps between them and the name). Without `rated` rows have no rate column.
     fn fit(&self, width: f32, fixed: f32, gap: f32, min_name: f32, min_unit: f32) -> RowColumns {
         if self.unit == 0.0 {
@@ -1085,12 +1105,20 @@ fn stream_name(stream: &Stream) -> String {
     }
 }
 
+/// A visibility checkbox's hover text: what a click does to `name` ("Hide A1", "Show EEG
+/// channels"), `shown` being whether it is shown (all of it, for a group).
+fn visibility_hint(response: Response, shown: bool, name: &str) -> Response {
+    let verb = if shown { "Hide" } else { "Show" };
+    response.on_hover_text(format!("{verb} {name}"))
+}
+
 /// All channels in the view's order, under their types (see [`kind_row`]), drawing only the
 /// rows in view, in columns as wide as the widest entry of any channel. Per channel:
-/// whether it is shown, its name (a click scrolls the traces to it), whether it is bad, and
-/// its unit as the readout shows values (µV for EEG whatever the file stores); its type and
-/// rate are in the rows above it. A list too narrow for all of it narrows the units and
-/// names (shortened in the middle) and then leaves out the unit (see [`Columns::fit`]);
+/// whether it is shown, its name, its unit as the readout shows values (µV for EEG
+/// whatever the file stores), and "Bad" for a bad channel; its type and rate are in the rows
+/// above it. A click anywhere else on the row selects it (scrolling the traces to it if it
+/// is off screen). A list too narrow for all of it narrows the units and names (shortened in
+/// the middle) and then leaves out the unit (see [`Columns::fit`]);
 /// hovering a row whose text is shortened or left out shows it all, its type and rate too,
 /// as does a channel whose type's channels differ in rate. Rows under a type or stream are
 /// a level in.
@@ -1108,7 +1136,7 @@ fn channel_list(
     ui: &mut Ui,
     (recording, platform): (u64, Platform),
     document: &Document,
-    view: &mut ViewState,
+    (view, marks): (&mut ViewState, &mut Marks),
     types: &mut TypeSettings,
     rule: f32,
 ) -> bool {
@@ -1142,7 +1170,7 @@ fn channel_list(
         })
         .max()
         .unwrap_or(1);
-    // The width of a row's checkbox and Bad toggle with the gaps beside them (not the
+    // The width of a row's checkbox and room for "Bad" with the gaps beside them (not the
     // indent), as the last frame laid them out (a guess before).
     let fixed_key = Id::unique("kymo channel list fixed width");
     let fixed = ui
@@ -1168,14 +1196,26 @@ fn channel_list(
         })
         .collect();
     let recording_kinds = view.kinds();
-    let selected = view.selected();
     // The menu at each channel row's end, always given its room, so nothing moves as it
     // shows.
     let menu = menu_width(row_height);
     let mut last_bottom = f32::NEG_INFINITY;
     // A solid scroll bar, which egui makes room for while the list scrolls: a floating one
     // lies over the rows' ends and takes the clicks meant for the types' menus.
-    let scroll = std::mem::replace(&mut ui.spacing_mut().scroll, ScrollStyle::solid());
+    // Its handle shows whenever the list scrolls, not only under the pointer, as its room is
+    // taken either way.
+    let solid = ScrollStyle {
+        dormant_handle_opacity: ScrollStyle::solid().active_handle_opacity,
+        ..ScrollStyle::solid()
+    };
+    let scroll = std::mem::replace(&mut ui.spacing_mut().scroll, solid);
+    // Below the rows, while channels are selected.
+    if !view.selected().is_empty() {
+        egui::Panel::bottom("selection bar")
+            .resizable(false)
+            .frame(Frame::NONE.inner_margin(Margin::symmetric(0, 6)))
+            .show(ui, |ui| selection_bar(ui, (view, marks), types, platform));
+    }
     let area = from_top(ui, "channels", recording, ScrollArea::vertical())
         .auto_shrink(false)
         .show_rows(ui, row_height, items.len(), |ui, rows| {
@@ -1197,13 +1237,13 @@ fn channel_list(
                 if i % 2 == 1 {
                     stripe(ui, rect);
                 }
+                let pointed = ui.rect_contains_pointer(rect);
                 if let Item::Channel(id, _, _) = items[i]
                     && view.is_selected(id)
                 {
                     let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.4);
                     ui.painter().rect_filled(rect, 0.0, fill);
                 }
-                let pointed = ui.rect_contains_pointer(rect);
                 // What is left past the row's right edge is clipped.
                 let mut row = ui.new_child(
                     UiBuilder::new()
@@ -1310,17 +1350,17 @@ fn channel_list(
                 let mut shown = view.is_shown(id);
                 let response = ui.add(Checkbox::without_text(&mut shown));
                 accessible_label(ui, &response, format!("Show {name}"));
+                let response = visibility_hint(response, shown, name);
                 if response.changed() {
                     view.set_shown(id, shown);
                 }
 
+                // A bad channel's name isn't grayed as its trace is: "Bad" after it says so.
                 let bad = view.is_bad(id);
-                let color = if bad {
-                    bad_color(ui.visuals())
-                } else if !shown {
-                    ui.visuals().weak_text_color()
-                } else {
+                let color = if shown {
                     type_color(view.kind_of(id), types, ui.visuals())
+                } else {
+                    ui.visuals().weak_text_color()
                 };
                 let text = short_name.as_deref().unwrap_or(listed);
                 let label = Label::new(RichText::new(text).color(color))
@@ -1334,17 +1374,15 @@ fn channel_list(
                 if alone && alone_mark(ui, response.rect, platform, id) {
                     view.rejoin(&[id]);
                 }
-                let hover = match (&full, shown) {
-                    (Some(full), true) => Some(format!("{full}\n\nShow in Traces")),
-                    (Some(full), false) => Some(full.clone()),
-                    (None, true) => Some("Show in Traces".to_owned()),
-                    (None, false) => None,
-                };
-                if let Some(hover) = hover {
-                    response = response.on_hover_text(hover);
+                if let Some(full) = &full {
+                    response = response.on_hover_text(full);
                 }
-                if shown {
-                    response = response.on_hover_cursor(CursorIcon::PointingHand);
+                // The whole row is one target: a click selects it alone (or takes the only
+                // selected row out again), ⌘-click adds or takes it out, ⇧-click selects the
+                // rows from the last clicked; each scrolls the traces to it if it is off
+                // screen.
+                if response.hovered() || row_response.hovered() {
+                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                 }
                 if response.clicked() || row_response.clicked() {
                     let modifiers = ui.input(|i| i.modifiers);
@@ -1352,22 +1390,40 @@ fn channel_list(
                         view.toggle_selected(id);
                     } else if modifiers.shift {
                         view.select_range(&channel_rows, id);
+                    } else if view.selected() == [id] {
+                        view.clear_selection();
                     } else {
                         view.select(id);
-                        view.scroll_to(id);
                     }
+                    view.reveal(id);
                 }
 
-                let response = ui.add(text_button(
-                    {
-                        let text = RichText::new("Bad").small();
-                        if bad { text } else { text.weak() }
-                    },
-                    Some(bad),
-                ));
-                accessible_label(ui, &response, format!("{name} bad"));
-                if response.clicked() {
-                    view.toggle_bad(id);
+                // "Bad" on a bad channel's row, as text, not a button (a click on the name
+                // beside the traces marks it, as does its menu); its room is taken on every
+                // row, so the columns after it line up.
+                // In the text color, whatever the channel's type.
+                let text = RichText::new("Bad")
+                    .small()
+                    .color(ui.visuals().text_color());
+                let width = WidgetText::from(text.clone())
+                    .into_galley(
+                        ui,
+                        Some(egui::TextWrapMode::Extend),
+                        f32::INFINITY,
+                        TextStyle::Body,
+                    )
+                    .size()
+                    .x
+                    + 2.0 * ui.spacing().button_padding.x;
+                let (room, _) = ui.allocate_exact_size(vec2(width, row_height), Sense::hover());
+                if bad {
+                    let response = ui
+                        .put(room, Label::new(text).selectable(false))
+                        .on_hover_text(
+                            "A bad channel: its menu, or a click on its name beside the traces, \
+                             marks it good.",
+                        );
+                    accessible_text(ui, &response, format!("{name} bad"));
                 }
                 // Everything but the indent and the name, without the gap before the next
                 // column; in whole points, so positions rounded to pixels don't change it
@@ -1396,30 +1452,17 @@ fn channel_list(
                     }
                     cells.push(response);
                 }
-                // A selected row's menu acts on every selected channel.
-                let ids = if view.is_selected(id) && selected.len() > 1 {
-                    selected.clone()
-                } else {
-                    vec![id]
-                };
-                let title = match ids.len() {
-                    1 => name.clone(),
-                    n => format!("{n} channels"),
-                };
-                let kinds: Vec<ChannelKind> =
-                    ids.iter().map(|&c| view.kind_of(c).clone()).collect();
+                // The menu acts on its row alone, selected or not (what acts on the
+                // selection is in the bar below the list), so it shows only on hover.
+                let ids = [id];
+                let kinds = [view.kind_of(id).clone()];
                 let targets = targets_of(view, &ids, &kinds);
-                let dots = if pointed || view.is_selected(id) {
-                    Dots::Weak
-                } else {
-                    Dots::Hidden
-                };
+                let dots = if pointed { Dots::Weak } else { Dots::Hidden };
                 let choice = ui
                     .with_layout(Layout::right_to_left(Align::Center), |ui| {
                         channel_menu(
                             ui,
                             name,
-                            &title,
                             types,
                             (&targets, &recording_kinds),
                             dots,
@@ -1430,6 +1473,9 @@ fn channel_list(
                 retype(ui, view, &ids, choice.retype);
                 if choice.rejoin {
                     view.rejoin(&ids);
+                }
+                if let Some(bad) = choice.bad {
+                    *marks = Some((vec![id], bad));
                 }
                 all_types |= choice.all_types;
                 if let Some(full) = full {
@@ -1488,6 +1534,89 @@ fn channel_list(
         ui.data_mut(|d| d.insert_temp(closed_key, closed));
     }
     all_types
+}
+
+/// The selection bar below the channel list, while channels are selected: how many, then
+/// what acts on them all: Mark (Mark as Bad for those that are good, Mark as Good for those
+/// that are bad, saying how many each marks), Type (Change Type To's items) and Scale (up
+/// and down, with their shortcuts on `platform` and the scroll gesture, and Scale With
+/// Type), wrapped where the sidebar is narrow.
+fn selection_bar(
+    ui: &mut Ui,
+    (view, marks): (&mut ViewState, &mut Marks),
+    types: &mut TypeSettings,
+    platform: Platform,
+) {
+    let row_height = ui.spacing().interact_size.y;
+    let selected = view.selected();
+    let n = selected.len();
+    ui.horizontal(|ui| {
+        ui.set_min_height(row_height);
+        ui.label(format!("{n} channel{} selected", plural(n)));
+    });
+    let kinds: Vec<ChannelKind> = selected.iter().map(|&c| view.kind_of(c).clone()).collect();
+    let targets = targets_of(view, &selected, &kinds);
+    let recording_kinds = view.kinds();
+    let (mut mark, mut picked, mut scale, mut rejoin) = (None, None, None, false);
+    // Wrapped, so a narrow sidebar shows them all.
+    ui.horizontal_wrapped(|ui| {
+        ui.set_min_height(row_height);
+        bar_menu(ui, "Mark", |ui| {
+            for (count, bad) in [(n - targets.bad, true), (targets.bad, false)] {
+                if count > 0 && ui.button(mark_label(count, n, bad)).clicked() {
+                    mark = Some(bad);
+                }
+            }
+        });
+        bar_menu(ui, "Type", |ui| {
+            picked = change_type_items(ui, &targets, &recording_kinds, types);
+        });
+        bar_menu(ui, "Scale", |ui| {
+            for (action, label) in [
+                (Action::ScaleSelectedUp, "Scale Up"),
+                (Action::ScaleSelectedDown, "Scale Down"),
+            ] {
+                let mut button = egui::Button::new(label);
+                if let Some(chord) = Keymap::chord(action) {
+                    button = button.shortcut_text(chord.display(platform));
+                }
+                if ui.add(button).clicked() {
+                    scale = Some(action);
+                }
+            }
+            if ui
+                .add_enabled(targets.scaled_alone, egui::Button::new(SCALE_WITH_TYPE))
+                .clicked()
+            {
+                rejoin = true;
+            }
+            ui.separator();
+            let keys = Keymap::new(platform).channel_scale_keys();
+            ui.label(RichText::new(format!("Or {keys}-scroll over one of them.")).weak());
+        });
+    });
+    if let Some(bad) = mark {
+        *marks = Some((selected.clone(), bad));
+    }
+    retype(ui, view, &selected, picked);
+    if let Some(action) = scale {
+        view.apply(action);
+    }
+    if rejoin {
+        view.rejoin(&selected);
+    }
+}
+
+/// A button named `label` with a chevron after it, which opens a menu of `add_contents`.
+fn bar_menu(ui: &mut Ui, label: &str, add_contents: impl FnOnce(&mut Ui)) {
+    let icon = egui::IdSalt::new("chevron");
+    let button = egui::Button::new((label, egui::Atom::custom(icon, vec2(CHEVRON_WIDTH, 1.0))));
+    let atoms = button.atom_ui(ui);
+    if let Some(rect) = atoms.rect(icon) {
+        let color = ui.visuals().text_color();
+        chevron(ui.painter(), rect.center(), true, color);
+    }
+    egui::Popup::menu(&atoms.response).show(add_contents);
 }
 
 /// What the mark of a channel scaled on its own is named for screen readers (and tests).
@@ -1594,6 +1723,7 @@ fn stream_row(
     let checkbox = Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
     let response = ui.add(checkbox);
     accessible_label(ui, &response, format!("Show {name}"));
+    let response = visibility_hint(response, checked, &name);
     if response.changed() {
         view.set_stream_shown(s, checked);
     }
@@ -1772,6 +1902,7 @@ fn kind_row(
     let checkbox = Checkbox::without_text(&mut checked).indeterminate(0 < shown && shown < all);
     let response = ui.add(checkbox);
     accessible_label(ui, &response, format!("Show {label}"));
+    let response = visibility_hint(response, checked, &label);
     if response.changed() {
         view.set_group_shown(stream, &kind, checked);
     }
@@ -1870,7 +2001,15 @@ fn kind_row(
     let recording = view.kinds();
     let choice = ui
         .with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let choice = type_menu(ui, &kind, &label, types, (&targets, &recording), row_height);
+            let choice = type_menu(
+                ui,
+                &kind,
+                &label,
+                types,
+                (&targets, &recording),
+                ids.len(),
+                row_height,
+            );
             if show_count {
                 cells.push(
                     ui.add(
@@ -1887,6 +2026,9 @@ fn kind_row(
         cell.on_hover_text(&full);
     }
     retype(ui, view, &ids, choice.retype);
+    if choice.select {
+        view.select_group(stream, &kind);
+    }
     (clicked, choice.all_types)
 }
 
@@ -1901,6 +2043,7 @@ fn targets_of<'a>(view: &ViewState, ids: &[ChannelId], kinds: &'a [ChannelKind])
         file_kind,
         retyped: ids.iter().any(|&c| view.retyped(c)),
         scaled_alone: ids.iter().any(|&c| view.scaled_alone(c)),
+        bad: ids.iter().filter(|&&c| view.is_bad(c)).count(),
     }
 }
 

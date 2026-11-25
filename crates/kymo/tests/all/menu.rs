@@ -88,7 +88,10 @@ fn follows_each_platforms_layout() {
             Action::Redo,
             Action::ToggleEditing,
             Action::DeleteAnnotation,
-            Action::MergeAnnotations
+            Action::MergeAnnotations,
+            Action::SelectAllChannels,
+            Action::SelectBadChannels,
+            Action::DeselectChannels
         ]
     );
     assert_eq!(mac[5].role, Role::Window);
@@ -104,6 +107,9 @@ fn follows_each_platforms_layout() {
             Action::ToggleEditing,
             Action::DeleteAnnotation,
             Action::MergeAnnotations,
+            Action::SelectAllChannels,
+            Action::SelectBadChannels,
+            Action::DeselectChannels,
             Action::Settings
         ]
     );

@@ -216,6 +216,7 @@ pub const BINDINGS: &[(Action, Chord)] = &[
     (Action::DeleteAnnotation, Chord::key(Key::Delete)),
     (Action::DeleteAnnotation, Chord::key(Key::Backspace)),
     (Action::Deselect, Chord::key(Key::Escape)),
+    (Action::SelectAllChannels, Chord::cmd(Key::A)),
 ];
 
 /// Points per line of a mouse wheel.

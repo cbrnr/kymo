@@ -538,6 +538,28 @@ impl ViewState {
             .collect();
     }
 
+    /// Selects the channels of a type (in `stream`, for a recording grouped by stream),
+    /// hidden ones too.
+    pub fn select_group(&mut self, stream: Option<usize>, kind: &ChannelKind) {
+        self.selected = (0..self.order.len())
+            .filter(|&c| self.in_group(c, stream, kind))
+            .map(|c| ChannelId(c as u32))
+            .collect();
+        self.anchor = None;
+    }
+
+    /// Selects every channel, hidden ones too.
+    pub fn select_all(&mut self) {
+        self.selected = self.order.iter().copied().collect();
+        self.anchor = None;
+    }
+
+    /// Selects the bad channels.
+    pub fn select_bad(&mut self) {
+        self.selected = self.bad.clone();
+        self.anchor = None;
+    }
+
     /// Clears the selection; returns whether anything was selected.
     pub fn clear_selection(&mut self) -> bool {
         self.anchor = None;
@@ -643,6 +665,11 @@ impl ViewState {
             Action::ScaleDown => self.scale(1.0 / SCALE_STEP),
             Action::ScaleSelectedUp => self.scale_channels(&self.selected(), SCALE_STEP),
             Action::ScaleSelectedDown => self.scale_channels(&self.selected(), 1.0 / SCALE_STEP),
+            Action::SelectAllChannels => self.select_all(),
+            Action::SelectBadChannels => self.select_bad(),
+            Action::DeselectChannels => {
+                self.clear_selection();
+            }
             Action::DefaultScale => {
                 self.fitted.clear();
                 self.alone.clear();
@@ -860,6 +887,22 @@ impl ViewState {
             }
             None => false,
         }
+    }
+
+    /// Scrolls just far enough that a shown channel's row is wholly on screen: it becomes
+    /// the first row if it was above, the last if below; nothing moves if it is on screen.
+    /// Returns `false` for a hidden channel.
+    pub fn reveal(&mut self, channel: ChannelId) -> bool {
+        let Some(row) = self.row_of(channel) else {
+            return false;
+        };
+        let (row, rows) = (row as f64, self.rows() as f64);
+        if row < self.top {
+            self.set_top(row);
+        } else if row + 1.0 > self.top + rows {
+            self.set_top(row + 1.0 - rows);
+        }
+        true
     }
 
     /// Scrolls so that row `top` (fractional for smooth scrolling) is first on screen.
