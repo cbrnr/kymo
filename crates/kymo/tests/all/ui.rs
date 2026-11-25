@@ -9169,7 +9169,8 @@ fn the_minimap_resizes_from_its_top_edge() {
     let tallest = viewer(&harness).layout().unwrap().minimap.unwrap();
     let region = tallest.bottom() - layout.traces.top();
     assert!((tallest.height() - region * minimap::MAX_FRACTION).abs() <= 1.0);
-    assert_eq!(harness.state().settings().minimap_height, tallest.height());
+    // The strip is on whole pixels.
+    assert!((harness.state().settings().minimap_height - tallest.height()).abs() <= 1.0);
     // The window didn't move.
     assert_eq!(viewer(&harness).view().time(), 0.0..20.0);
 

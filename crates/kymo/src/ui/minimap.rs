@@ -77,15 +77,19 @@ pub fn time_at(x: f64, duration: f64, width: f64) -> f64 {
     }
 }
 
-/// Where the window `time` lies on `track` over a recording `duration` seconds long: at
-/// least [`MIN_WINDOW`] wide (or as wide as the track, if narrower), widened around its
-/// middle, and kept on the track.
-pub fn window_on(track: Rangef, duration: f64, time: &Range<f64>) -> Rangef {
+/// Where the window `time` lies on `track` (its ends on physical pixels, `ppp` to a point)
+/// over a recording `duration` seconds long: at least [`MIN_WINDOW`] wide (or as wide as the
+/// track, if narrower), widened around its middle, kept on the track, and its ends on
+/// physical pixels. Its width comes from the window's length alone, so it keeps it as the
+/// window moves.
+pub fn window_on(track: Rangef, duration: f64, time: &Range<f64>, ppp: f32) -> Rangef {
+    let ppp = if ppp > 0.0 { ppp } else { 1.0 };
+    let snap = |x: f32| (x * ppp).round() / ppp;
     let width = track.span().max(0.0);
-    let at = |t: f64| track.min + x_at(t, duration, f64::from(width)) as f32;
-    let (x0, x1) = (at(time.start), at(time.end));
-    let len = (x1 - x0).max(MIN_WINDOW.min(width)).min(width);
-    let start = ((x0 + x1 - len) / 2.0).clamp(track.min, track.max - len);
+    let len = x_at(time.end - time.start, duration, f64::from(width)) as f32;
+    let len = snap(len.max(MIN_WINDOW)).min(width);
+    let middle = track.min + x_at((time.start + time.end) / 2.0, duration, f64::from(width)) as f32;
+    let start = snap(middle - len / 2.0).clamp(track.min, track.max - len);
     Rangef::new(start, start + len)
 }
 
@@ -232,7 +236,8 @@ impl Minimap {
         let span = input.window.end - input.window.start;
         let width = f64::from(rect.width());
         let time_of = |x: f32| time_at(f64::from(x - rect.left()), duration, width);
-        let window = window_on(rect.x_range(), duration, &input.window);
+        let ppp = ui.pixels_per_point();
+        let window = window_on(rect.x_range(), duration, &input.window, ppp);
 
         let response = ui.interact(rect, id, Sense::click_and_drag());
         let primary = ui.input(|i| i.pointer.primary_down());
@@ -286,7 +291,6 @@ impl Minimap {
         }
 
         if let Some(p) = response.hover_pos().filter(|_| !resizing) {
-            let ppp = ui.pixels_per_point();
             let slack = (POINTER_SLACK * ppp).round() as u32;
             let x = f64::from((p.x - rect.left()) * ppp);
             let under = annotations::overview_under(
@@ -374,8 +378,13 @@ impl Minimap {
         }
         let grid = visuals.widgets.noninteractive.bg_stroke.color;
 
+        // The top edge: the grid's line, under the window's outline.
+        let top = rect.top() + 0.5 / ppp;
+        painter.hline(rect.x_range(), top, Stroke::new(1.0 / ppp, grid));
+
         // The window: what lies outside it dimmed, so it stands out however dense the
-        // annotations are, and outlined in the selection's color.
+        // annotations are, and outlined in the selection's color over the strip's height,
+        // in whole pixels.
         let shade = visuals.extreme_bg_color.gamma_multiply(if hot {
             SHADE_HOT_ALPHA
         } else {
@@ -385,20 +394,21 @@ impl Minimap {
         let right = Rect::from_x_y_ranges(window.max..=rect.right(), rect.y_range());
         painter.rect_filled(left, 0.0, shade);
         painter.rect_filled(right, 0.0, shade);
-        let window = Rect::from_x_y_ranges(window, rect.y_range().shrink(1.0));
+        let width = (WINDOW_STROKE * ppp).round().max(1.0) / ppp;
         painter.rect_stroke(
-            window,
+            Rect::from_x_y_ranges(window, rect.y_range()),
             2.0,
-            Stroke::new(WINDOW_STROKE, visuals.selection.stroke.color),
+            Stroke::new(width, visuals.selection.stroke.color),
             StrokeKind::Inside,
         );
 
-        // The top edge: the grid's line, highlighted while it can be dragged.
-        let stroke = if resizing {
-            visuals.widgets.hovered.fg_stroke
-        } else {
-            Stroke::new(1.0 / ppp, grid)
-        };
-        painter.hline(rect.x_range(), rect.top(), stroke);
+        // Highlighted while it can be dragged, over everything.
+        if resizing {
+            painter.hline(
+                rect.x_range(),
+                rect.top(),
+                visuals.widgets.hovered.fg_stroke,
+            );
+        }
     }
 }

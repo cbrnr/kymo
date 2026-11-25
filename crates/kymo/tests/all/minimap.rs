@@ -43,26 +43,50 @@ fn times_and_positions_map_to_each_other() {
 fn the_window_lies_where_its_times_are_and_stays_visible() {
     let track = Rangef::new(100.0, 700.0);
     // 60 s of 600 s from 300 s: a tenth of the track, from its middle.
-    let w = window_on(track, 600.0, &(300.0..360.0));
-    assert!(
-        (w.min - 400.0).abs() < 1e-3 && (w.max - 460.0).abs() < 1e-3,
-        "{w:?}"
-    );
+    let w = window_on(track, 600.0, &(300.0..360.0), 1.0);
+    assert_eq!((w.min, w.max), (400.0, 460.0));
     // 1 s of an hour: widened around its middle to the narrowest it gets.
-    let w = window_on(track, 3600.0, &(1800.0..1801.0));
-    assert!((w.span() - MIN_WINDOW).abs() < 1e-3, "{w:?}");
-    assert!((w.center() - 400.0 - 600.0 / 7200.0).abs() < 1e-3, "{w:?}");
+    let w = window_on(track, 3600.0, &(1800.0..1801.0), 1.0);
+    assert_eq!(w.span(), MIN_WINDOW);
+    assert!((w.center() - 400.0).abs() <= 0.5, "{w:?}");
     // At either end, widened inward.
-    let w = window_on(track, 3600.0, &(0.0..1.0));
-    assert_eq!(w.min, track.min);
-    assert!((w.span() - MIN_WINDOW).abs() < 1e-3);
-    let w = window_on(track, 3600.0, &(3599.0..3600.0));
+    let w = window_on(track, 3600.0, &(0.0..1.0), 1.0);
+    assert_eq!((w.min, w.span()), (track.min, MIN_WINDOW));
+    let w = window_on(track, 3600.0, &(3599.0..3600.0), 1.0);
     assert_eq!(w.max, track.max);
     // The whole recording: the whole track.
-    assert_eq!(window_on(track, 600.0, &(0.0..600.0)), track);
+    assert_eq!(window_on(track, 600.0, &(0.0..600.0), 1.0), track);
     // A track narrower than the narrowest window: all of it.
     let narrow = Rangef::new(10.0, 13.0);
-    assert_eq!(window_on(narrow, 600.0, &(0.0..1.0)), narrow);
+    assert_eq!(window_on(narrow, 600.0, &(0.0..1.0), 1.0), narrow);
+}
+
+proptest! {
+    /// Moving the window keeps its width, and its ends stay on physical pixels.
+    #[test]
+    fn the_window_keeps_its_width_as_it_moves(
+        span in 0.5..600.0f64,
+        starts in proptest::collection::vec(0.0..1.0f64, 2..20),
+        ppp in prop_oneof![Just(1.0f32), Just(1.5f32), Just(2.0f32)],
+        width_px in 50..2000u32,
+    ) {
+        let duration = 3600.0;
+        let track = Rangef::new(100.0, 100.0 + width_px as f32 / ppp);
+        // In whole physical pixels: the ends' points are k / ppp, not exact in f32.
+        let widths: Vec<f32> = starts
+            .iter()
+            .map(|s| {
+                let start = s * (duration - span);
+                let w = window_on(track, duration, &(start..start + span), ppp);
+                for x in [w.min, w.max] {
+                    prop_assert!(((x * ppp) - (x * ppp).round()).abs() < 1e-3, "{w:?}");
+                }
+                prop_assert!(track.min <= w.min && w.max <= track.max, "{w:?}");
+                Ok((w.span() * ppp).round())
+            })
+            .collect::<Result<_, _>>()?;
+        prop_assert!(widths.windows(2).all(|p| p[0] == p[1]), "{widths:?}");
+    }
 }
 
 #[test]

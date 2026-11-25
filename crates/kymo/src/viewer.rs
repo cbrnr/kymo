@@ -1165,9 +1165,10 @@ impl Viewer {
             pos2(full.right() - bar, traces.top()),
             pos2(full.right(), traces.bottom()),
         );
+        // On whole physical pixels, as the minimap's window is.
         let below = Rect::from_min_max(
-            pos2(traces.left(), full.bottom() - below),
-            pos2(traces.right(), full.bottom()),
+            pos2(traces.left(), px(full.bottom() - below) / ppp),
+            pos2(traces.right(), (full.bottom() * ppp).floor() / ppp),
         );
         let (hbar, minimap_rect) = match minimap_height {
             Some(_) => (None, Some(below)),
