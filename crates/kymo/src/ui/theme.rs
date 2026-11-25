@@ -56,7 +56,7 @@ pub fn modal<T>(
         ui.set_width(width + f32::from(margin.left) + f32::from(margin.right));
         ui.spacing_mut().item_spacing.y = 0.0;
         let bar = egui::Frame::NONE.inner_margin(TITLE_MARGIN).show(ui, |ui| {
-            ui.vertical_centered(|ui| ui.label(super::window_title(title)));
+            ui.vertical_centered(|ui| ui.label(super::title_text(title)));
         });
         let rect = bar.response.rect;
         ui.painter()

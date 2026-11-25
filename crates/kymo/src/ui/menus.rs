@@ -221,7 +221,7 @@ pub fn shortcuts_window(ctx: &egui::Context, open: &mut bool, platform: Platform
     let stroke = 2.0 * style.visuals.window_stroke.width;
     let outer = width + f32::from(margin.left) + room + stroke;
     Overlay::Shortcuts.center_on_open(ctx, *open);
-    egui::Window::new(window_title(Action::Shortcuts.label()))
+    egui::Window::new(window_title(ctx, Action::Shortcuts.label()))
         .id(Overlay::Shortcuts.id())
         .frame(frame)
         .title_frame(title_frame)
@@ -270,7 +270,7 @@ const COLUMN_GAP: f32 = 32.0;
 /// The About window (Windows and Linux; macOS uses the system's About panel).
 pub fn about_window(ctx: &egui::Context, open: &mut bool) {
     Overlay::About.center_on_open(ctx, *open);
-    egui::Window::new(window_title(Action::About.label()))
+    egui::Window::new(window_title(ctx, Action::About.label()))
         .id(Overlay::About.id())
         .title_frame(theme::title_frame(ctx))
         .open(open)

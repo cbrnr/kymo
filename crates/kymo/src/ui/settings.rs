@@ -31,7 +31,7 @@ pub fn settings_window(
     let before = settings.clone();
     let defaults = Settings::default();
     Overlay::Settings.center_on_open(ctx, *open);
-    egui::Window::new(window_title("Settings"))
+    egui::Window::new(window_title(ctx, "Settings"))
         .id(Overlay::Settings.id())
         .title_frame(theme::title_frame(ctx))
         .open(open)

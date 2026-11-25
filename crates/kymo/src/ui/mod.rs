@@ -21,7 +21,7 @@ pub mod stepper;
 pub mod theme;
 pub mod types;
 
-use eframe::egui::{Button, Color32, Context, FontId, IntoAtoms, Label, RichText};
+use eframe::egui::{self, Button, Color32, Context, FontId, IntoAtoms, Label, RichText};
 
 /// Corner radius of buttons in a line of text, as [`text_button`] makes them.
 pub const TEXT_BUTTON_RADIUS: f32 = 4.0;
@@ -94,10 +94,27 @@ pub fn hint_text(text: &str) -> RichText {
     RichText::new(text).size(HINT_SIZE)
 }
 
-/// `text` as a window's title: as large as body text, as the system's titles are (egui's
-/// are headings), in the interface's font.
-pub fn window_title(text: &str) -> RichText {
+/// `text` as the text of a window's title: as large as body text, as the system's titles
+/// are (egui's are headings), in the interface's font.
+pub fn title_text(text: &str) -> RichText {
     RichText::new(text).text_style(eframe::egui::TextStyle::Body)
+}
+
+/// `text` as a window's title, for a window with a close button. egui centers a title
+/// between the left edge and the close button, so the title would sit off the window's
+/// center by half the button; an empty space as wide as the button before the text
+/// puts it back.
+pub fn window_title(ctx: &egui::Context, text: &str) -> egui::Atoms<'static> {
+    let style = ctx.global_style();
+    // As tall as egui's close button, which is as tall as a heading's row.
+    let size = ctx.fonts_mut(|f| f.row_height(&egui::TextStyle::Heading.resolve(&style)));
+    let mut atoms = egui::Atoms::default();
+    atoms.push_right(egui::Atom::custom(
+        egui::IdSalt::new("title balance"),
+        egui::Vec2::splat(size),
+    ));
+    atoms.push_right(title_text(text));
+    atoms
 }
 
 /// The windows over the recording, which Esc and ⌘W close, the one in front first.

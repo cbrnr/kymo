@@ -41,7 +41,7 @@ pub fn info_window(ctx: &egui::Context, open: &mut bool, path: &Path, summary: &
             .fold(0.0, f32::max)
     });
     Overlay::RecordingInfo.center_on_open(ctx, *open);
-    let title = window_title(Action::RecordingInfo.label().trim_end_matches('…'));
+    let title = window_title(ctx, Action::RecordingInfo.label().trim_end_matches('…'));
     egui::Window::new(title)
         .id(Overlay::RecordingInfo.id())
         .title_frame(theme::title_frame(ctx))
