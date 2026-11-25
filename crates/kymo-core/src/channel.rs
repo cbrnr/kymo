@@ -297,18 +297,6 @@ pub enum Quantity {
     FieldGradient,
 }
 
-impl Quantity {
-    /// The SI unit's symbol.
-    pub fn si_label(self) -> &'static str {
-        match self {
-            Quantity::Voltage => "V",
-            Quantity::Conductance => "S",
-            Quantity::MagneticField => "T",
-            Quantity::FieldGradient => "T/m",
-        }
-    }
-}
-
 /// The factor to SI and the quantity of a unit label, if it is a unit kymo scales; a unit
 /// written as words as its symbol.
 fn parse_unit(label: &str) -> Option<(f64, Quantity)> {

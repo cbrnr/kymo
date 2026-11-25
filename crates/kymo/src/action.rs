@@ -59,7 +59,8 @@ pub enum Action {
     /// Taller traces: a smaller amplitude per channel spacing.
     ScaleUp,
     ScaleDown,
-    /// Taller traces for the selected channels alone (see [`crate::view::ViewState::scale_channels`]).
+    /// Taller traces for the selected channels alone (see
+    /// [`crate::view::ViewState::scale_channels`]).
     ScaleSelectedUp,
     ScaleSelectedDown,
     /// Fits each channel type's amplitude to what the window shows (see [`crate::scale`]),

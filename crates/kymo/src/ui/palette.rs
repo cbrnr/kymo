@@ -16,17 +16,18 @@ pub fn type_color(kind: &ChannelKind, types: &TypeSettings, visuals: &Visuals) -
 
 /// The default color of a channel type's traces and names. EEG, misc and every other type
 /// are gray, a little lighter than the text in light themes and darker in dark ones
-/// ([`GRAY_TRACES`]), so that dense traces don't weigh more than the colored ones; seven types get a hue each, all at one lightness and
-/// chroma per theme (OKLCH L 0.56, C 0.15 against white; L 0.66, C 0.13, lighter, against
-/// the dark theme's near black), so none stands out more than another: MEG green
-/// (magnetometers; gradiometers darker, or lighter in dark themes; references grayer),
-/// EOG blue (HEOG and VEOG alike), ECG red, EMG violet, intracranial orange (sEEG; ECoG
-/// darker, or lighter; DBS grayer), respiration magenta and stim amber. In the sidebar's
-/// order (EEG, MEG, EOG, ECG, EMG, intracranial, respiration; stim last), neighbors stay
-/// apart for color vision deficiencies (OKLab ΔE ≥ 8 under simulated protanopia and
-/// deuteranopia) and for normal vision (ΔE ≥ 15), and every hue keeps 3:1 contrast with
-/// the background. There are no more hues to give: any other at that lightness and chroma
-/// is within ΔE 13 of one of them, so other types stay gray unless one is picked.
+/// ([`GRAY_TRACES`]), so that dense traces don't weigh more than the colored ones; seven
+/// types get a hue each, all at one lightness and chroma per theme (OKLCH L 0.56, C 0.15
+/// against white; L 0.66, C 0.13, lighter, against the dark theme's near black), so none
+/// stands out more than another: MEG green (magnetometers; gradiometers darker, or lighter
+/// in dark themes; references grayer), EOG blue (HEOG and VEOG alike), ECG red, EMG violet,
+/// intracranial orange (sEEG; ECoG darker, or lighter; DBS grayer), respiration magenta and
+/// stim amber. In the sidebar's order (EEG, MEG, EOG, ECG, EMG, intracranial, respiration;
+/// stim last), neighbors stay apart for color vision deficiencies (OKLab ΔE ≥ 8 under
+/// simulated protanopia and deuteranopia) and for normal vision (ΔE ≥ 15), and every hue
+/// keeps 3:1 contrast with the background. There are no more hues to give: any other at
+/// that lightness and chroma is within ΔE 13 of one of them, so other types stay gray
+/// unless one is picked.
 pub fn trace_color(kind: &ChannelKind, visuals: &Visuals) -> Color32 {
     let hex = |light: u32, dark: u32| {
         let rgb = if visuals.dark_mode { dark } else { light };

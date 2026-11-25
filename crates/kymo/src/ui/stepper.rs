@@ -168,7 +168,8 @@ pub fn parse_number(text: &str) -> Option<f64> {
 
 /// The stepper's arrows, as tall as the field: a rounded body split into an upper and a
 /// lower half, each with a chevron, darker while pressed. A press steps once; held, it
-/// repeats after [`REPEAT_DELAY`] while the pointer stays on it. Returns the steps: positive up, negative down.
+/// repeats after [`REPEAT_DELAY`] while the pointer stays on it. Returns the steps:
+/// positive up, negative down.
 fn arrows(ui: &mut Ui, id: Id) -> f64 {
     let height = ui.spacing().interact_size.y;
     let (rect, _) = ui.allocate_exact_size(vec2(STEPPER_WIDTH, height), Sense::hover());

@@ -19,8 +19,8 @@ use crate::ui::elide_middle;
 use crate::ui::palette::{annotation_color, type_color};
 use crate::ui::readout::display_unit;
 use crate::ui::types::{
-    Dots, Retype, SCALE_WITH_TYPE, Targets, change_type_items, channel_menu, mark_label,
-    menu_width, type_menu, type_swatch,
+    Dots, Retype, SCALE_WITH_TYPE, Targets, change_type_items, channel_menu, mark_label, type_menu,
+    type_swatch,
 };
 use crate::view::ViewState;
 
@@ -1207,9 +1207,9 @@ fn channel_list(
         })
         .collect();
     let recording_kinds = view.kinds();
-    // The menu at each channel row's end, always given its room, so nothing moves as it
-    // shows.
-    let menu = menu_width(row_height);
+    // The menu at each channel row's end (a square button), always given its room, so
+    // nothing moves as it shows.
+    let menu = row_height;
     let mut last_bottom = f32::NEG_INFINITY;
     // A solid scroll bar, which egui makes room for while the list scrolls: a floating one
     // lies over the rows' ends and takes the clicks meant for the types' menus.
@@ -1750,8 +1750,8 @@ fn stream_row(
     let kind = stream.kind.trim();
     let count = format!("{all} \u{b7} {}", grid_rate(grid));
     let gap = ui.spacing().item_spacing.x;
-    // The room of its types' menus, so the counts line up.
-    let menu = menu_width(row_height);
+    // The room of its types' menus (square buttons), so the counts line up.
+    let menu = row_height;
     let room = (ui.available_width() - menu - gap).max(0.0);
     let (name_width, kind_width, count_width) = (width(&name), width(kind), width(&count));
     let least = name_width.min(LIST_MIN_NAME_EMS * body.size);
@@ -1884,11 +1884,11 @@ struct KindRow {
 /// checkbox that shows or hides them in the traces (mixed while some are shown), its swatch
 /// (see [`type_swatch`]), its name in its trace color (a click scrolls the traces to its
 /// first shown channel), the unit its channels share, if they do (see [`shared_units`]), at
-/// the right its number of channels and, unless a stream's row
-/// above gives it, their rate ("2 · 512 Hz"), as a stream's row has them, and its menu at
-/// the end (see [`type_menu`]); a narrow row leaves the count and rate out, then the unit,
-/// and hovering shows it all. Returns whether the chevron was clicked, and whether the menu asked for the
-/// Channel Types window.
+/// the right its number of channels and, unless a stream's row above gives it, their rate
+/// ("2 · 512 Hz"), as a stream's row has them, and its menu at the end (see [`type_menu`]);
+/// a narrow row leaves the count and rate out, then the unit, and hovering shows it all.
+/// Returns whether the chevron was clicked, and whether the menu asked for the Channel
+/// Types window.
 fn kind_row(
     ui: &mut Ui,
     view: &mut ViewState,
@@ -1940,8 +1940,8 @@ fn kind_row(
         None => (all.to_string(), format!("{name}\n{channels}{in_unit}")),
     };
     let gap = ui.spacing().item_spacing.x;
-    // The menu at the end of the row, always.
-    let menu = menu_width(row_height);
+    // The menu at the end of the row (a square button), always.
+    let menu = row_height;
     let room = (ui.available_width() - menu - gap).max(0.0);
     let name_width = width(name);
     // With too little room the count goes first, then the unit.

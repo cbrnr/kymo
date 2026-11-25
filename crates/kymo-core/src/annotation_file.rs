@@ -8,10 +8,11 @@
 //! time base for onsets, at full precision.
 //!
 //! It loads those tables (also with `description` or `value` in place of `trial_type`, and
-//! `n/a` durations; a `stream_id` that isn't one of the recording's streams with channels or
-//! annotations leaves the annotation without a stream) and MNE's CSV as `Annotations.save` writes it: onsets as dates and times,
-//! the start time (or 1970-01-01 without one) plus the time since the first sample, and
-//! channel names joined by `:` (`{COLON}` inside a name).
+//! `n/a` durations; a `stream_id` that isn't one of the recording's streams with channels
+//! or annotations leaves the annotation without a stream) and MNE's CSV as
+//! `Annotations.save` writes it: onsets as dates and times, the start time (or 1970-01-01
+//! without one) plus the time since the first sample, and channel names joined by `:`
+//! (`{COLON}` inside a name).
 //!
 //! kymo's onsets count from the header's start time, so a file's onset is kymo's minus the
 //! first sample's time: annotations land where MNE puts the recording's own.

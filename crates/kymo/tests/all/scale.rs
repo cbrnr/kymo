@@ -194,7 +194,7 @@ proptest! {
         view.set_rows(rows);
         for (i, &bad) in bad.iter().enumerate() {
             if bad && i % 3 == 0 {
-                view.toggle_bad(ChannelId(i as u32));
+                view.set_bad(ChannelId(i as u32), true);
             }
         }
         view.set_shown(ChannelId(hidden as u32), false);
@@ -296,7 +296,7 @@ fn sines(offsets: [f64; 4], gains: [f64; 4]) -> Fixture {
 
 fn view_of(fx: &Fixture) -> ViewState {
     let mut view = ViewState::new(&fx.recording);
-    view.toggle_bad(ChannelId(4));
+    view.set_bad(ChannelId(4), true);
     view
 }
 
@@ -357,7 +357,7 @@ fn bad_and_hidden_channels_are_left_out() {
     assert!(hidden < 21e-6, "{hidden}");
     // Without any good EEG channel on screen, EEG keeps its scale.
     for i in 0..4 {
-        view.toggle_bad(ChannelId(i));
+        view.set_bad(ChannelId(i), true);
     }
     assert_eq!(amplitude(&fitted(&fx, &view, 1000), ChannelKind::EEG), None);
 }

@@ -291,8 +291,8 @@ impl Pyramid {
     }
 
     /// Sum of the native values of `channel` over the present samples of block `block`
-    /// (samples `block · TILE_LEN ..`), missing ones left out and counted, or `None` if the channel is
-    /// not in this grid or the block is not built yet.
+    /// (samples `block · TILE_LEN ..`), missing ones left out and counted, or `None` if the
+    /// channel is not in this grid or the block is not built yet.
     pub fn block_sum(&self, channel: ChannelId, block: u64) -> Option<BlockSum> {
         let row = self.grid.channels().iter().position(|&c| c == channel)?;
         self.row_sum(block, row)
