@@ -343,6 +343,7 @@ impl KymoApp {
             viewer.set_default_span(settings.default_window_s);
             viewer.set_antialias(settings.antialias);
             viewer.set_scale_bars(settings.scale_bars);
+            viewer.set_minimap(settings.minimap, settings.minimap_height);
             viewer.set_remove_dc(settings.remove_dc);
             viewer.set_type_settings(settings.types.clone());
         }
@@ -579,6 +580,7 @@ impl KymoApp {
             sidebar: self.show_sidebar,
             antialias: self.options.settings.antialias,
             scale_bars: self.options.settings.scale_bars,
+            minimap: self.options.settings.minimap,
             dc: self.options.settings.remove_dc,
             stim: viewer.is_some_and(Viewer::has_stim),
             shown: viewer.is_some_and(|v| v.legend().shown_count().0 > 0),
@@ -819,6 +821,9 @@ impl KymoApp {
                 if let Some(types) = shown.types {
                     self.options.settings.types = types;
                 }
+                if let Some(height) = shown.minimap_height {
+                    self.options.settings.minimap_height = height;
+                }
             }
             State::Empty => {
                 egui::CentralPanel::default().show(ui, |ui| {
@@ -934,6 +939,10 @@ impl KymoApp {
             }),
             Action::ToggleScaleBars => self.set_settings(Settings {
                 scale_bars: !self.options.settings.scale_bars,
+                ..self.options.settings.clone()
+            }),
+            Action::ToggleMinimap => self.set_settings(Settings {
+                minimap: !self.options.settings.minimap,
                 ..self.options.settings.clone()
             }),
             Action::ToggleAntialias => self.set_settings(Settings {
@@ -1551,6 +1560,10 @@ impl KymoApp {
                 );
                 viewer.set_antialias(self.options.settings.antialias);
                 viewer.set_scale_bars(self.options.settings.scale_bars);
+                viewer.set_minimap(
+                    self.options.settings.minimap,
+                    self.options.settings.minimap_height,
+                );
                 viewer.set_remove_dc(self.options.settings.remove_dc);
                 viewer.set_type_settings(self.options.settings.types.clone());
                 if self.options.settings.auto_scale_on_open {
@@ -1604,6 +1617,7 @@ struct AppMenuState {
     can_redo: bool,
     sidebar: bool,
     scale_bars: bool,
+    minimap: bool,
     antialias: bool,
     dc: bool,
     /// Whether the recording has stim channels, whose codes the rule annotates.
@@ -1641,6 +1655,7 @@ impl MenuState for AppMenuState {
         match action {
             Action::ToggleSidebar => Some(self.sidebar),
             Action::ToggleScaleBars => Some(self.scale_bars),
+            Action::ToggleMinimap => Some(self.minimap),
             Action::ToggleAntialias => Some(self.antialias),
             Action::ToggleDc => Some(self.dc),
             Action::ToggleEditing => Some(self.editing),

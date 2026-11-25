@@ -72,6 +72,9 @@ pub enum Action {
     ToggleSidebar,
     /// Shows or hides the scale bars beside the traces (a setting, on by default).
     ToggleScaleBars,
+    /// Shows or hides the minimap below the traces, in place of the time scrollbar (a
+    /// setting, off by default).
+    ToggleMinimap,
     /// Turns anti-aliased traces on or off (a setting, off by default).
     ToggleAntialias,
     /// Stim events at every change to a non-zero code (see [`EventRule`]).
@@ -98,7 +101,7 @@ pub enum Action {
 }
 
 impl Action {
-    pub const ALL: [Action; 54] = [
+    pub const ALL: [Action; 55] = [
         Action::Open,
         Action::OpenRecent(0),
         Action::ClearRecent,
@@ -142,6 +145,7 @@ impl Action {
         Action::ToggleDc,
         Action::ToggleSidebar,
         Action::ToggleScaleBars,
+        Action::ToggleMinimap,
         Action::ToggleAntialias,
         Action::StimEveryChange,
         Action::StimFromZero,
@@ -202,6 +206,7 @@ impl Action {
             Action::ToggleDc => "Remove DC",
             Action::ToggleSidebar => "Show Sidebar",
             Action::ToggleScaleBars => "Show Scale Bars",
+            Action::ToggleMinimap => "Show Minimap",
             Action::ToggleAntialias => "Anti-Aliasing",
             Action::StimEveryChange => "Every Change",
             Action::StimFromZero => "From Zero",
@@ -223,6 +228,7 @@ impl Action {
             Action::ToggleDc
                 | Action::ToggleSidebar
                 | Action::ToggleScaleBars
+                | Action::ToggleMinimap
                 | Action::ToggleAntialias
                 | Action::StimEveryChange
                 | Action::StimFromZero
@@ -286,6 +292,7 @@ impl Action {
                 | Action::CheckForUpdates
                 | Action::ToggleDc
                 | Action::ToggleScaleBars
+                | Action::ToggleMinimap
                 | Action::ToggleAntialias
         )
     }

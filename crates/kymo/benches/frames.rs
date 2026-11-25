@@ -3,7 +3,7 @@
 //! the keys and the trackpad do:
 //!
 //! ```text
-//! cargo bench -p kymo --bench frames -- FILE [--fresh] [--antialias] [--edit] [--measure]
+//! cargo bench -p kymo --bench frames -- FILE [--fresh] [--antialias] [--minimap] [--edit] [--measure]
 //! ```
 //!
 //! The window (1280×800, vsync off, drawing continuously) opens FILE at the default view
@@ -40,6 +40,7 @@
 //! then the benchmark started again, so the build doesn't count towards peak memory); with
 //! `--fresh` the pyramid builds into an empty directory during the run, as on a first open.
 //! Traces are drawn in whole pixels, as by default, or anti-aliased with `--antialias`.
+//! With `--minimap`, the minimap is shown below the traces throughout.
 
 // A measuring tool: panicking on a broken input is the point.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -81,6 +82,7 @@ fn main() {
     let measure = args.iter().any(|a| a == "--measure");
     let settings = Settings {
         antialias: args.iter().any(|a| a == "--antialias"),
+        minimap: args.iter().any(|a| a == "--minimap"),
         ..Settings::default()
     };
     let files: Vec<PathBuf> = args
@@ -88,7 +90,7 @@ fn main() {
         .filter(|a| {
             !matches!(
                 a.as_str(),
-                "--fresh" | "--antialias" | "--edit" | "--measure"
+                "--fresh" | "--antialias" | "--minimap" | "--edit" | "--measure"
             )
         })
         .map(PathBuf::from)
@@ -96,12 +98,12 @@ fn main() {
     let [path] = &files[..] else {
         if args.is_empty() {
             eprintln!(
-                "skipping: run `cargo bench -p kymo --bench frames -- FILE [--fresh] [--antialias] [--edit] [--measure]`"
+                "skipping: run `cargo bench -p kymo --bench frames -- FILE [--fresh] [--antialias] [--minimap] [--edit] [--measure]`"
             );
             return;
         }
         eprintln!(
-            "usage: cargo bench -p kymo --bench frames -- FILE [--fresh] [--antialias] [--edit] [--measure]"
+            "usage: cargo bench -p kymo --bench frames -- FILE [--fresh] [--antialias] [--minimap] [--edit] [--measure]"
         );
         std::process::exit(2);
     };
@@ -144,6 +146,7 @@ fn main() {
         "anti-aliasing: {}",
         if settings.antialias { "on" } else { "off" }
     );
+    println!("minimap: {}", if settings.minimap { "on" } else { "off" });
     report.print();
     match peak_resident_bytes() {
         Some(bytes) => println!("peak resident memory: {:.0} MB", bytes as f64 / 1e6),
