@@ -67,7 +67,7 @@ The following sections show keyboard shortcuts for macOS. On Windows and Linux, 
 
 - The sidebar lists channels grouped by type (and by stream or participant for XDF and BVRF). It supports collapsing groups and showing or hiding individual channels or entire groups.
 - Select channels as in any list (click, <kbd>⌘</kbd>-click, or <kbd>⇧</kbd>-click), all of them with <kbd>⌘A</kbd>, or a type's channels from its menu. The bar below the list hides, marks, retypes, or scales the selected channels at once.
-- Mark a channel as bad by clicking its name next to the traces, or with the **Bad** toggle that appears when hovering over its row in the sidebar. Bad marks can be undone. Channels the recording already marks as bad are recognized.
+- Mark a channel as bad (or good again) by clicking its name next to the traces, or from the menu at the end of its row in the sidebar, where bad channels say **Bad**. Bad marks can be undone. Channels the recording already marks as bad are recognized.
 - Channel types are names, not a fixed list. Kymo recognizes common types (including those of MNE-Python, BIDS, and EDF+) and keeps any other type names found in the recording.
 - Change the type of a channel from the menu at the end of its row, or of the selected channels from the bar below the list: choose an existing type, enter a new name, or select **From File** to restore the types stored in the recording.
 - Each channel type has its own color, DC removal, and scale, set in the sidebar or in the **Channel Types** window. Kymo remembers these settings by type name across recordings.

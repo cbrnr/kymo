@@ -4,7 +4,7 @@ use std::collections::{BTreeSet, HashMap};
 
 use eframe::egui::{
     self, Align, Checkbox, Color32, CursorIcon, FontId, Frame, Id, Label, Layout, Margin, Response,
-    RichText, ScrollArea, Sense, TextStyle, Ui, UiBuilder, style::ScrollStyle, vec2,
+    RichText, ScrollArea, Sense, TextStyle, Ui, UiBuilder, WidgetText, style::ScrollStyle, vec2,
 };
 use kymo_core::{ChannelId, ChannelKind, Stream, StreamContent};
 
@@ -15,13 +15,13 @@ use crate::keymap::{Keymap, Platform};
 use crate::types::TypeSettings;
 use crate::ui::axis::{Clock, format_time};
 use crate::ui::color::{Choice, swatch};
+use crate::ui::elide_middle;
 use crate::ui::palette::{annotation_color, bad_color, type_color};
 use crate::ui::readout::display_unit;
 use crate::ui::types::{
     Dots, Retype, SCALE_WITH_TYPE, Targets, change_type_items, channel_menu, mark_label,
     menu_width, type_menu, type_swatch,
 };
-use crate::ui::{elide_middle, text_button};
 use crate::view::ViewState;
 
 /// Runs `add_contents` in exactly the width `ui` offers, clipping whatever is wider. A panel
@@ -927,7 +927,7 @@ impl Columns {
     /// Everything in full where it fits; with too little room the unit narrows first, down
     /// to `min_unit`, then the name, down to `min_name`; then the unit drops out, the name
     /// widening again into the room it leaves. (A channel's type and rate are in the row it
-    /// is under.) `fixed` is what every row has besides (the checkbox, the Bad toggle and
+    /// is under.) `fixed` is what every row has besides (the checkbox, the room for "Bad" and
     /// the gaps between them and the name). Without `rated` rows have no rate column.
     fn fit(&self, width: f32, fixed: f32, gap: f32, min_name: f32, min_unit: f32) -> RowColumns {
         if self.unit == 0.0 {
@@ -1115,11 +1115,10 @@ fn visibility_hint(response: Response, shown: bool, name: &str) -> Response {
 /// All channels in the view's order, under their types (see [`kind_row`]), drawing only the
 /// rows in view, in columns as wide as the widest entry of any channel. Per channel:
 /// whether it is shown, its name, its unit as the readout shows values (µV for EEG
-/// whatever the file stores), and a Bad toggle, which a good channel's row shows only while
-/// hovered; its type and rate are in the rows above it. A click anywhere else on the row
-/// selects it (scrolling the traces to it if it is off screen). A list too narrow for all
-/// of it narrows the units and names (shortened in the middle) and then leaves out the unit
-/// (see [`Columns::fit`]);
+/// whatever the file stores), and "Bad" for a bad channel; its type and rate are in the rows
+/// above it. A click anywhere else on the row selects it (scrolling the traces to it if it
+/// is off screen). A list too narrow for all of it narrows the units and names (shortened in
+/// the middle) and then leaves out the unit (see [`Columns::fit`]);
 /// hovering a row whose text is shortened or left out shows it all, its type and rate too,
 /// as does a channel whose type's channels differ in rate. Rows under a type or stream are
 /// a level in.
@@ -1171,7 +1170,7 @@ fn channel_list(
         })
         .max()
         .unwrap_or(1);
-    // The width of a row's checkbox and Bad toggle with the gaps beside them (not the
+    // The width of a row's checkbox and room for "Bad" with the gaps beside them (not the
     // indent), as the last frame laid them out (a guess before).
     let fixed_key = Id::unique("kymo channel list fixed width");
     let fixed = ui
@@ -1398,25 +1397,29 @@ fn channel_list(
                     view.reveal(id);
                 }
 
-                // "Bad" on a bad channel's row; on a good one's only while it is hovered, as
-                // what a click does, so a list of good channels doesn't read as all bad. Its
-                // room is always taken, so nothing moves as it shows.
+                // "Bad" on a bad channel's row, as text, not a button (a click on the name
+                // beside the traces marks it, as does its menu); its room is taken on every
+                // row, so the columns after it line up.
                 let text = RichText::new("Bad").small();
-                let text = if bad {
-                    text
-                } else if pointed {
-                    text.weak()
-                } else {
-                    text.color(Color32::TRANSPARENT)
-                };
-                let response = ui.add(text_button(text, Some(bad))).on_hover_text(if bad {
-                    "Mark as Good"
-                } else {
-                    "Mark as Bad"
-                });
-                accessible_label(ui, &response, format!("{name} bad"));
-                if response.clicked() {
-                    *marks = Some((vec![id], !bad));
+                let width = WidgetText::from(text.clone())
+                    .into_galley(
+                        ui,
+                        Some(egui::TextWrapMode::Extend),
+                        f32::INFINITY,
+                        TextStyle::Body,
+                    )
+                    .size()
+                    .x
+                    + 2.0 * ui.spacing().button_padding.x;
+                let (room, _) = ui.allocate_exact_size(vec2(width, row_height), Sense::hover());
+                if bad {
+                    let response = ui
+                        .put(room, Label::new(text).selectable(false))
+                        .on_hover_text(
+                            "A bad channel: its menu, or a click on its name beside the traces, \
+                             marks it good.",
+                        );
+                    accessible_text(ui, &response, format!("{name} bad"));
                 }
                 // Everything but the indent and the name, without the gap before the next
                 // column; in whole points, so positions rounded to pixels don't change it
