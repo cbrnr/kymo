@@ -55,6 +55,8 @@ pub fn info_window(ctx: &egui::Context, open: &mut bool, path: &Path, summary: &
         // scroll: a window's own scroll area (`vscroll`) keeps it at a fixed height.
         .resizable([true, false])
         .default_width(640.0)
+        // Narrower, the keys and their values have hardly any room left.
+        .min_width(420.0)
         .show(ctx, |ui| {
             let max_height = ui.ctx().content_rect().height() * 0.7;
             egui::ScrollArea::vertical()

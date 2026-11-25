@@ -61,16 +61,17 @@ pub fn modal<T>(
             // The close button's room on either side, so the title stays centered and is cut
             // short before it reaches the button, as egui's window titles are.
             let side = close_size(ui, &style) + style.spacing.item_spacing.x;
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 0.0;
-                ui.add_space(side);
-                let width = (ui.available_width() - side).max(0.0);
-                let layout = egui::Layout::top_down(egui::Align::Center);
-                ui.allocate_ui_with_layout(egui::vec2(width, 0.0), layout, |ui| {
-                    ui.set_width(width);
-                    ui.add(egui::Label::new(super::title_text(title)).truncate());
-                });
-                ui.add_space(side);
+            // In a rect of its own rather than a row, which is as tall as a control and so
+            // would make the bar taller than the windows'.
+            let mut rect = ui
+                .available_rect_before_wrap()
+                .shrink2(egui::vec2(side, 0.0));
+            rect.set_height(0.0);
+            // The bar spans the dialog, however short the title.
+            ui.set_min_width(ui.available_width());
+            let layout = egui::Layout::top_down(egui::Align::Center);
+            ui.scope_builder(egui::UiBuilder::new().max_rect(rect).layout(layout), |ui| {
+                ui.add(egui::Label::new(super::title_text(title)).truncate());
             });
         });
         let rect = bar.response.rect;
