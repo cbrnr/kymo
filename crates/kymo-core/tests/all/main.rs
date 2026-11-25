@@ -33,6 +33,7 @@ mod real_data;
 mod recording;
 mod service;
 mod sidecar;
+mod spread;
 mod stim;
 mod tile_cache;
 mod tiles;
