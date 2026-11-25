@@ -123,6 +123,9 @@ fn gestures(platform: Platform) -> Vec<Row> {
             "Click its name beside the traces".into(),
         ),
         row("Go to a Channel", "Click its name in the sidebar".into()),
+        row("Move the Window", "Click or drag the minimap".into()),
+        row("Resize the Minimap", "Drag its top edge".into()),
+        row("Minimap Options", "Right-click the minimap".into()),
         row(
             "Collapse or Expand All Groups",
             format!("{alt} + click a group's arrow in the sidebar"),

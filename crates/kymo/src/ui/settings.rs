@@ -133,10 +133,13 @@ pub fn settings_window(
                 });
             ui.add_space(6.0);
             if ui.button("Restore Defaults").clicked() {
-                // What the View menu sets stays as it is.
+                // What the View menu sets stays as it is, and the minimap's height, set
+                // where it is.
                 *settings = Settings {
                     antialias: settings.antialias,
                     scale_bars: settings.scale_bars,
+                    minimap: settings.minimap,
+                    minimap_height: settings.minimap_height,
                     remove_dc: settings.remove_dc,
                     ..Settings::default()
                 };

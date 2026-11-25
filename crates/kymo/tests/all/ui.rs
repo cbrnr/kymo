@@ -12,15 +12,17 @@ use eframe::egui_wgpu;
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use kymo::action::Action;
-use kymo::annotations::{AnnotationColor, AnnotationColors};
+use kymo::annotations::{self, AnnotationColor, AnnotationColors};
 use kymo::app::{KymoApp, Menus, Options};
 use kymo::app_mode::AppMode;
 use kymo::keymap::Platform;
 use kymo::settings::{Settings, Theme, load_annotation_colors};
 use kymo::types::TypeSettings;
+use kymo::ui::axis::Clock;
 use kymo::ui::gpu::Gpu;
 use kymo::ui::palette::{annotation_color, trace_color};
 use kymo::ui::types::{ALL_TYPES, CHANGE_TYPE, FROM_FILE, NEW_TYPE, OTHER_TYPES};
+use kymo::ui::{minimap, scrollbar, status};
 use kymo::update::{Release, Source, UpdateState};
 use kymo::viewer::Viewer;
 use kymo_core::ChannelKind;
@@ -568,7 +570,7 @@ fn the_scrollbars_move_the_view() {
     let layout = viewer(&harness).layout().unwrap();
 
     // Dragging the time thumb (a third of the track, at its start) to the far end.
-    let bar = layout.time_bar;
+    let bar = layout.time_bar.unwrap();
     let grab = egui::pos2(bar.left() + 5.0, bar.center().y);
     harness.hover_at(grab);
     harness.step();
@@ -9071,4 +9073,246 @@ fn dialog_titles_are_as_large_as_body_text() {
         "the title is {drawn} wide, as body text {body}, as a heading {}",
         width(egui::TextStyle::Heading)
     );
+}
+
+/// Turns the minimap on through the View menu.
+fn show_minimap(harness: &mut Harness<'_, KymoApp>) {
+    choose(harness, "View", "Show Minimap");
+    harness.run_steps(2);
+}
+
+#[test]
+fn the_minimap_takes_the_time_scrollbars_place() {
+    let file = TempFile::preset("bdf+c-small");
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let before = viewer(&harness).layout().unwrap();
+    assert!(before.time_bar.is_some() && before.minimap.is_none());
+    assert!(!checked(&mut harness, "View", "Show Minimap"));
+
+    show_minimap(&mut harness);
+    assert!(checked(&mut harness, "View", "Show Minimap"));
+    assert!(harness.state().settings().minimap);
+    let layout = viewer(&harness).layout().unwrap();
+    let rect = layout.minimap.unwrap();
+    assert_eq!(layout.time_bar, None);
+    assert_eq!(rect.height(), minimap::DEFAULT_HEIGHT);
+    assert_eq!(rect.x_range(), layout.traces.x_range());
+    assert_eq!(rect.bottom(), before.time_bar.unwrap().bottom());
+    // The traces give up the room the minimap takes beyond the scrollbar's.
+    let taken = minimap::DEFAULT_HEIGHT - scrollbar::THICKNESS;
+    assert!((before.traces.bottom() - layout.traces.bottom() - taken).abs() <= 1.0);
+
+    show_minimap(&mut harness);
+    assert!(!harness.state().settings().minimap);
+    assert_eq!(viewer(&harness).layout().unwrap(), before);
+}
+
+#[test]
+fn the_minimap_moves_the_window() {
+    // 60 s, 20 s at a time.
+    let file = TempFile::preset("bdf+c-small");
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    show_minimap(&mut harness);
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    let x_of = |t: f64| rect.left() + (t / 60.0) as f32 * rect.width();
+    // In f32, as points are: within 1e-4 s of the viewer's times, in f64.
+    let time_of = |x: f32| f64::from((x - rect.left()) / rect.width()) * 60.0;
+    let y = rect.center().y;
+    let start = |harness: &Harness<'_, KymoApp>| viewer(harness).view().start();
+
+    // A click centers the window there, as far as the recording goes.
+    let x = x_of(30.0);
+    click(&mut harness, egui::pos2(x, y));
+    assert!((start(&harness) - (time_of(x) - 10.0)).abs() < 1e-4);
+    click(&mut harness, egui::pos2(rect.right() - 2.0, y));
+    assert_eq!(viewer(&harness).view().time(), 40.0..60.0);
+
+    // Dragging the window moves it as grabbed.
+    let from = egui::pos2(x_of(45.0), y);
+    let to = egui::pos2(x_of(45.0) - 100.0, y);
+    drag(&mut harness, from, to);
+    let want = 40.0 + time_of(to.x) - time_of(from.x);
+    assert!((start(&harness) - want).abs() < 1e-4, "{}", start(&harness));
+
+    // A press beside it centers it there, and dragging on moves it from there.
+    let from = egui::pos2(x_of(55.0), y);
+    let to = egui::pos2(x_of(25.0), y);
+    drag(&mut harness, from, to);
+    assert!((start(&harness) - (time_of(to.x) - 10.0)).abs() < 1e-4);
+}
+
+#[test]
+fn the_minimap_resizes_from_its_top_edge() {
+    let file = TempFile::preset("bdf+c-small");
+    let mut harness = window_with_short_frames(file.path());
+    ready(&mut harness);
+    show_minimap(&mut harness);
+    let layout = viewer(&harness).layout().unwrap();
+    let rect = layout.minimap.unwrap();
+    let edge = egui::pos2(rect.center().x, rect.top());
+
+    drag(&mut harness, edge, edge - egui::vec2(0.0, 30.0));
+    let height = minimap::DEFAULT_HEIGHT + 30.0;
+    let resized = viewer(&harness).layout().unwrap();
+    assert_eq!(resized.minimap.unwrap().height(), height);
+    assert_eq!(harness.state().settings().minimap_height, height);
+    assert!((layout.traces.bottom() - resized.traces.bottom() - 30.0).abs() <= 1.0);
+
+    // No higher than a quarter of the trace region.
+    drag(
+        &mut harness,
+        edge - egui::vec2(0.0, 30.0),
+        egui::pos2(edge.x, 0.0),
+    );
+    let tallest = viewer(&harness).layout().unwrap().minimap.unwrap();
+    let region = tallest.bottom() - layout.traces.top();
+    assert!((tallest.height() - region * minimap::MAX_FRACTION).abs() <= 1.0);
+    assert_eq!(harness.state().settings().minimap_height, tallest.height());
+    // The window didn't move.
+    assert_eq!(viewer(&harness).view().time(), 0.0..20.0);
+
+    // A double click on the edge puts it back.
+    double_click(&mut harness, egui::pos2(edge.x, tallest.top()));
+    harness.step();
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    assert_eq!(rect.height(), minimap::DEFAULT_HEIGHT);
+    assert_eq!(
+        harness.state().settings().minimap_height,
+        minimap::DEFAULT_HEIGHT
+    );
+}
+
+/// A secondary click at `pos`.
+fn secondary_click(harness: &mut Harness<'_, KymoApp>, pos: egui::Pos2) {
+    hover(harness, pos);
+    for pressed in [true, false] {
+        harness.event(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        });
+    }
+    harness.run_steps(2);
+}
+
+#[test]
+fn the_minimaps_menu_resets_its_height_and_hides_it() {
+    let file = TempFile::preset("bdf+c-small");
+    let options = Options {
+        settings: Settings {
+            minimap: true,
+            minimap_height: 70.0,
+            ..options().settings
+        },
+        ..options()
+    };
+    let mut harness = fonts_window(file.path(), options);
+    ready(&mut harness);
+    // As set when the recording opens.
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    assert_eq!(rect.height(), 70.0);
+
+    secondary_click(&mut harness, rect.center());
+    // A right-click doesn't move the window.
+    assert_eq!(viewer(&harness).view().time(), 0.0..20.0);
+    harness.get_by_label(minimap::RESET_HEIGHT).click();
+    harness.run_steps(2);
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    assert_eq!(rect.height(), minimap::DEFAULT_HEIGHT);
+    assert_eq!(
+        harness.state().settings().minimap_height,
+        minimap::DEFAULT_HEIGHT
+    );
+
+    secondary_click(&mut harness, rect.center());
+    harness.get_by_label(minimap::HIDE).click();
+    harness.run_steps(2);
+    assert!(!harness.state().settings().minimap);
+    let layout = viewer(&harness).layout().unwrap();
+    assert!(layout.minimap.is_none() && layout.time_bar.is_some());
+}
+
+#[test]
+fn hovering_the_minimap_names_its_time_and_annotations() {
+    let file = TempFile::preset("edf+c-annotations");
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    show_minimap(&mut harness);
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    let ppp = harness.ctx.pixels_per_point();
+    let width_px = (rect.width() * ppp).round() as u32;
+    for fraction in [0.1, 0.37, 0.8] {
+        let p = egui::pos2(rect.left() + rect.width() * fraction, rect.center().y);
+        hover(&mut harness, p);
+        harness.step();
+        let viewer = viewer(&harness);
+        let duration = viewer.view().duration();
+        let time = f64::from((p.x - rect.left()) / rect.width()) * duration;
+        let under = annotations::overview_under(
+            &viewer.document().annotations,
+            viewer.legend(),
+            duration,
+            width_px,
+            f64::from((p.x - rect.left()) * ppp),
+            (2.0 * ppp).round() as u32,
+        );
+        assert!(!under.is_empty());
+        let want = format!(
+            "{} · {}",
+            status::pointer_text(
+                time,
+                status::time_decimals(viewer.document().recording.sfreq()),
+                Clock::for_end(duration),
+                None,
+            ),
+            status::annotations_text(under.iter().map(|a| a.data.description.as_str())),
+        );
+        assert_eq!(viewer.status().left, want);
+    }
+}
+
+#[test]
+fn the_minimap_follows_picked_colors() {
+    // 30 s without annotations, the window over the first 20 s; an event at 10 s.
+    let file = without_triggers("fif-mixed");
+    let dir = TempDir::new();
+    let events = dir.path().join("events.tsv");
+    std::fs::write(&events, "onset\tduration\ttrial_type\n10\t0\tblink\n").unwrap();
+    let mut harness = screenshot_window(file.path());
+    ready(&mut harness);
+    assert!(harness.state_mut().load_annotations_from(&events));
+    harness.run_steps(2);
+    assert_eq!(viewer(&harness).document().annotations.len(), 1);
+    show_minimap(&mut harness);
+    // The event's line, inside the window, where nothing lies over it.
+    let line = |harness: &mut Harness<'_, KymoApp>| {
+        let rect = viewer(harness).layout().unwrap().minimap.unwrap();
+        let ppp = harness.ctx.pixels_per_point();
+        let column = (rect.width() * ppp).round() as u32 / 3;
+        let image = harness.render().unwrap();
+        let x = (rect.left() * ppp) as u32 + column;
+        let y = (rect.center().y * ppp) as u32;
+        let [r, g, b, _] = image.get_pixel(x, y).0;
+        [r, g, b]
+    };
+    let near = |a: [u8; 3], b: [u8; 3]| a.iter().zip(b).all(|(&a, b)| a.abs_diff(b) <= 2);
+    let entry = viewer(&harness)
+        .legend()
+        .entry(None, "blink")
+        .unwrap()
+        .color;
+    let palette = annotation_color(entry, &harness.ctx.global_style().visuals);
+    let before = line(&mut harness);
+    assert!(
+        near(before, [palette.r(), palette.g(), palette.b()]),
+        "{before:?}"
+    );
+
+    pick(&mut harness, "Color of blink", [10, 200, 30]);
+    close_picker(&mut harness);
+    let after = line(&mut harness);
+    assert!(near(after, [10, 200, 30]), "{after:?}");
 }

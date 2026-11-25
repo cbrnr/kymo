@@ -17,6 +17,7 @@ mod icon;
 mod keymap;
 mod measure;
 mod menu;
+mod minimap;
 mod native_menu;
 mod opened;
 mod palette;

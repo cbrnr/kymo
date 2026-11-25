@@ -10,6 +10,7 @@ use kymo_core::tile::DEFAULT_BUDGET;
 use crate::annotations::{AnnotationColors, Rgb};
 use crate::render::DEFAULT_GPU_BUDGET;
 use crate::types::{TypeSet, TypeSettings};
+use crate::ui::minimap;
 use crate::view::DEFAULT_SPAN;
 
 /// The megabytes the tile cache may take, as Settings offers them.
@@ -25,6 +26,8 @@ const GPU_MEMORY_KEY: &str = "kymo.gpu_memory_mb";
 const DEFAULT_WINDOW_KEY: &str = "kymo.default_window_s";
 const ANTIALIAS_KEY: &str = "kymo.antialias";
 const SCALE_BARS_KEY: &str = "kymo.scale_bars";
+const MINIMAP_KEY: &str = "kymo.minimap";
+const MINIMAP_HEIGHT_KEY: &str = "kymo.minimap_height";
 const REMOVE_DC_KEY: &str = "kymo.remove_dc";
 const AUTO_SCALE_KEY: &str = "kymo.auto_scale_on_open";
 const THEME_KEY: &str = "kymo.theme";
@@ -112,6 +115,11 @@ pub struct Settings {
     pub antialias: bool,
     /// Whether each channel type on screen shows a scale bar.
     pub scale_bars: bool,
+    /// Whether the minimap is shown below the traces, in place of the time scrollbar.
+    pub minimap: bool,
+    /// The minimap's height, in points, as dragged (the window limits it further, see
+    /// [`crate::ui::minimap::height`]).
+    pub minimap_height: f32,
     /// Whether each trace is centered on its mean over the window (DC removal), of the types
     /// `types` has it for.
     pub remove_dc: bool,
@@ -137,6 +145,8 @@ impl Default for Settings {
             default_window_s: DEFAULT_SPAN,
             antialias: false,
             scale_bars: true,
+            minimap: false,
+            minimap_height: minimap::DEFAULT_HEIGHT,
             remove_dc: true,
             types: TypeSettings::default(),
             auto_scale_on_open: true,
@@ -169,6 +179,12 @@ impl Settings {
             scale_bars: get(SCALE_BARS_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.scale_bars),
+            minimap: get(MINIMAP_KEY)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(defaults.minimap),
+            minimap_height: get(MINIMAP_HEIGHT_KEY)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(defaults.minimap_height),
             remove_dc: get(REMOVE_DC_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.remove_dc),
@@ -199,6 +215,8 @@ impl Settings {
         storage.set_string(DEFAULT_WINDOW_KEY, self.default_window_s.to_string());
         storage.set_string(ANTIALIAS_KEY, self.antialias.to_string());
         storage.set_string(SCALE_BARS_KEY, self.scale_bars.to_string());
+        storage.set_string(MINIMAP_KEY, self.minimap.to_string());
+        storage.set_string(MINIMAP_HEIGHT_KEY, self.minimap_height.to_string());
         storage.set_string(REMOVE_DC_KEY, self.remove_dc.to_string());
         storage.set_string(CHANNEL_TYPES_KEY, format_types(&self.types));
         for name in OLD_TYPES {
@@ -213,7 +231,7 @@ impl Settings {
     }
 
     /// Every setting within its range, each budget the nearest offered one; NaN seconds
-    /// become the default.
+    /// and a minimap height that isn't a number become the default.
     pub fn clamped(self) -> Settings {
         let seconds = if self.default_window_s.is_nan() {
             DEFAULT_SPAN
@@ -226,6 +244,12 @@ impl Settings {
             default_window_s: seconds.clamp(*DEFAULT_WINDOW_S.start(), *DEFAULT_WINDOW_S.end()),
             antialias: self.antialias,
             scale_bars: self.scale_bars,
+            minimap: self.minimap,
+            minimap_height: if self.minimap_height.is_finite() {
+                self.minimap_height.max(minimap::MIN_HEIGHT)
+            } else {
+                minimap::DEFAULT_HEIGHT
+            },
             remove_dc: self.remove_dc,
             types: self.types,
             auto_scale_on_open: self.auto_scale_on_open,

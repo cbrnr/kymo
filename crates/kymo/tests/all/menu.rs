@@ -273,6 +273,7 @@ fn only_command_shortcuts_are_attached() {
                         Action::ToggleDc
                             | Action::ToggleSidebar
                             | Action::ToggleScaleBars
+                            | Action::ToggleMinimap
                             | Action::ToggleAntialias
                             | Action::StimEveryChange
                             | Action::StimFromZero
@@ -302,6 +303,7 @@ fn grays_out_what_needs_a_recording() {
             Action::CheckForUpdates,
             Action::ToggleDc,
             Action::ToggleScaleBars,
+            Action::ToggleMinimap,
             Action::ToggleAntialias,
         ]
         .into();

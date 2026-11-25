@@ -64,6 +64,8 @@ pub struct Legend {
     by_stream: bool,
     /// Counts the changes of what is shown, for [`shown_revision`](Self::shown_revision).
     shown_revision: u64,
+    /// Counts the changes of colors, for [`colors_revision`](Self::colors_revision).
+    colors_revision: u64,
 }
 
 /// Whether the legend of `recording` groups its descriptions by stream: where more than
@@ -157,12 +159,22 @@ impl Legend {
     /// color.
     pub fn apply_colors(&mut self, picked: &AnnotationColors) {
         for entry in &mut self.entries {
-            entry.color = picked
+            let color = picked
                 .get(&entry.description)
                 .map_or(AnnotationColor::Palette(entry.slot), |&rgb| {
                     AnnotationColor::Custom(rgb)
                 });
+            if entry.color != color {
+                entry.color = color;
+                self.colors_revision += 1;
+            }
         }
+    }
+
+    /// A number that grows whenever an entry's color changes. Entries new to the legend
+    /// get theirs without it, as they come with a change of the store.
+    pub fn colors_revision(&self) -> u64 {
+        self.colors_revision
     }
 
     /// Entries with at least one annotation, in order of first appearance.
@@ -322,18 +334,16 @@ pub fn marks(
     width_px: u32,
     mut label_width: impl FnMut(&str) -> f64,
 ) -> Marks {
-    let mut marks = Marks::default();
     if width_px == 0 {
-        return marks;
+        return Marks::default();
     }
     let rows = view.visible_rows();
-    // The band being extended and the last line, per color and span.
-    let mut open: HashMap<(AnnotationColor, Span), Range<u32>> = HashMap::new();
-    let mut lines: HashMap<(AnnotationColor, Span), u32> = HashMap::new();
+    let time = view.time();
+    let mut merger = Merger::default();
     let mut next_label = f64::NEG_INFINITY;
     let mut spans = Vec::new();
     // By onset, so marks of each color and span come from left to right.
-    for a in store.query(view.time()) {
+    for a in store.query(time.clone()) {
         let Some(entry) = legend.of(&a.data).filter(|e| e.shown) else {
             continue;
         };
@@ -356,55 +366,100 @@ pub fn marks(
             continue;
         }
 
-        let (columns, line) = columns(view, &a.data, width_px);
+        let (columns, line) = columns(view.start(), view.span(), &a.data, width_px);
         for &span in &spans {
-            let key = (entry.color, span);
-            if line {
-                if lines.insert(key, columns.start) != Some(columns.start) {
-                    marks.lines.push(Mark {
-                        columns: columns.clone(),
-                        span,
-                        color: entry.color,
-                    });
-                }
-            } else {
-                let columns = columns.clone();
-                match open.get_mut(&key) {
-                    Some(band) if columns.start <= band.end => band.end = band.end.max(columns.end),
-                    Some(band) => marks.bands.push(Mark {
-                        columns: std::mem::replace(band, columns),
-                        span,
-                        color: entry.color,
-                    }),
-                    None => {
-                        open.insert(key, columns);
-                    }
-                }
-            }
+            merger.add(entry.color, span, &columns, line);
         }
 
         let x = view.x_at(a.data.onset, f64::from(width_px)).max(0.0);
         if x >= next_label {
             next_label = x + label_width(&a.data.description);
-            marks.labels.push(Label {
+            merger.marks.labels.push(Label {
                 x,
                 text: a.data.description.clone(),
                 color: entry.color,
             });
         }
     }
-    marks
-        .bands
-        .extend(open.into_iter().map(|((color, span), columns)| Mark {
-            columns,
-            span,
-            color,
-        }));
-    // The bands still open come in the hash map's order, which changes with every map.
-    marks
-        .bands
-        .sort_unstable_by_key(|m| (m.color, m.span, m.columns.start));
-    marks
+    merger.finish()
+}
+
+/// The marks for all of `store`'s annotations over a recording `duration` seconds long, on
+/// a strip `width_px` physical pixels wide (the minimap), of the descriptions `legend`
+/// shows: as [`marks`] makes them, but each spanning the strip's height, and without
+/// labels.
+pub fn overview_marks(
+    store: &AnnotationStore,
+    legend: &Legend,
+    duration: f64,
+    width_px: u32,
+) -> Marks {
+    let mut merger = Merger::default();
+    if width_px == 0 {
+        return merger.marks;
+    }
+    for a in store.iter() {
+        if let Some(entry) = legend.of(&a.data).filter(|e| e.shown) {
+            let (columns, line) = columns(0.0, duration, &a.data, width_px);
+            merger.add(entry.color, Span::All, &columns, line);
+        }
+    }
+    merger.finish()
+}
+
+/// Marks of one color and span merged as they come, from left to right.
+#[derive(Default)]
+struct Merger {
+    /// The band being extended and the last line, per color and span.
+    open: HashMap<(AnnotationColor, Span), Range<u32>>,
+    lines: HashMap<(AnnotationColor, Span), u32>,
+    marks: Marks,
+}
+
+impl Merger {
+    /// Adds a mark over `columns`, a line or a band; marks of a color and span must come
+    /// by their first column.
+    fn add(&mut self, color: AnnotationColor, span: Span, columns: &Range<u32>, line: bool) {
+        let key = (color, span);
+        if line {
+            if self.lines.insert(key, columns.start) != Some(columns.start) {
+                self.marks.lines.push(Mark {
+                    columns: columns.clone(),
+                    span,
+                    color,
+                });
+            }
+        } else {
+            let columns = columns.clone();
+            match self.open.get_mut(&key) {
+                Some(band) if columns.start <= band.end => band.end = band.end.max(columns.end),
+                Some(band) => self.marks.bands.push(Mark {
+                    columns: std::mem::replace(band, columns),
+                    span,
+                    color,
+                }),
+                None => {
+                    self.open.insert(key, columns);
+                }
+            }
+        }
+    }
+
+    fn finish(self) -> Marks {
+        let mut marks = self.marks;
+        marks
+            .bands
+            .extend(self.open.into_iter().map(|((color, span), columns)| Mark {
+                columns,
+                span,
+                color,
+            }));
+        // The bands still open come in the hash map's order, which changes with every map.
+        marks
+            .bands
+            .sort_unstable_by_key(|m| (m.color, m.span, m.columns.start));
+        marks
+    }
 }
 
 /// The annotations under pixel column `x` of a trace area `width_px` physical pixels wide,
@@ -419,6 +474,44 @@ pub fn under<'s>(
     slack: u32,
     channel: Option<ChannelId>,
 ) -> Vec<&'s Annotation> {
+    let applies =
+        |a: &AnnotationData| spans_all(a) || channel.is_some_and(|c| a.channels.contains(&c));
+    near(
+        store,
+        legend,
+        (view.start(), view.span()),
+        width_px,
+        x,
+        slack,
+        applies,
+    )
+}
+
+/// The annotations under pixel column `x` of the minimap, `width_px` physical pixels wide
+/// over a recording `duration` seconds long, by onset: those of the descriptions `legend`
+/// shows whose mark is within `slack` columns of `x` (see [`overview_marks`]).
+pub fn overview_under<'s>(
+    store: &'s AnnotationStore,
+    legend: &Legend,
+    duration: f64,
+    width_px: u32,
+    x: f64,
+    slack: u32,
+) -> Vec<&'s Annotation> {
+    near(store, legend, (0.0, duration), width_px, x, slack, |_| true)
+}
+
+/// The annotations `applies` takes whose mark is within `slack` columns of column `x`, on
+/// `width_px` columns showing `span` seconds from `start`.
+fn near<'s>(
+    store: &'s AnnotationStore,
+    legend: &Legend,
+    (start, span): (f64, f64),
+    width_px: u32,
+    x: f64,
+    slack: u32,
+    applies: impl Fn(&AnnotationData) -> bool,
+) -> Vec<&'s Annotation> {
     if width_px == 0 {
         return Vec::new();
     }
@@ -426,13 +519,13 @@ pub fn under<'s>(
     let width = f64::from(width_px);
     // Within the trace area: annotations beyond it are not drawn.
     let near = at.saturating_sub(slack)..(at + 1 + slack).min(width_px);
-    let time = view.time_at(f64::from(near.start), width)..view.time_at(f64::from(near.end), width);
+    let time_at = |column: u32| start + f64::from(column) / width * span;
     store
-        .query(time)
+        .query(time_at(near.start)..time_at(near.end))
         .filter(|a| legend.shows(&a.data))
-        .filter(|a| spans_all(&a.data) || channel.is_some_and(|c| a.data.channels.contains(&c)))
+        .filter(|a| applies(&a.data))
         .filter(|a| {
-            let (columns, _) = columns(view, &a.data, width_px);
+            let (columns, _) = columns(start, span, &a.data, width_px);
             columns.start < near.end && near.start < columns.end
         })
         .collect()
@@ -472,7 +565,7 @@ pub fn pick(
 pub fn extent(view: &ViewState, a: &AnnotationData, width_px: u32) -> Option<Range<u32>> {
     let time = view.time();
     (width_px > 0 && a.onset < time.end && a.end() >= time.start)
-        .then(|| columns(view, a, width_px).0)
+        .then(|| columns(view.start(), view.span(), a, width_px).0)
 }
 
 /// Whether `a`'s mark spans the trace area's height: if it applies to all channels, or is a
@@ -482,12 +575,14 @@ pub fn spans_all(a: &AnnotationData) -> bool {
     a.channels.is_empty() || a.origin == Origin::Stim
 }
 
-/// The pixel columns `a`'s mark covers on a trace area `width_px` (`> 0`) pixels wide, and
-/// whether it is a line: one column, for annotations shorter than a pixel.
-fn columns(view: &ViewState, a: &AnnotationData, width_px: u32) -> (Range<u32>, bool) {
+/// The pixel columns `a`'s mark covers on a trace area `width_px` (`> 0`) pixels wide that
+/// shows `span` seconds from `start`, and whether it is a line: one column, for annotations shorter than a pixel.
+fn columns(start: f64, span: f64, a: &AnnotationData, width_px: u32) -> (Range<u32>, bool) {
     let width = f64::from(width_px);
-    let x0 = view.x_at(a.onset, width);
-    let x1 = view.x_at(a.end(), width);
+    // As `ViewState::x_at`, to the bit.
+    let x_at = |t: f64| (t - start) / span * width;
+    let x0 = x_at(a.onset);
+    let x1 = x_at(a.end());
     let first = column(x0, width_px - 1);
     if x1 - x0 < 1.0 {
         (first..first + 1, true)

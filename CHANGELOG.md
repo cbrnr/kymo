@@ -1,6 +1,9 @@
 # Changelog
 
-## [UNRELEASED] · 2026-11-24
+## [UNRELEASED] · 2026-11-25
+### ✨ Added
+- Add a minimap below the traces (View → Show Minimap) that shows the annotations and gaps of the whole recording and where the window is; click or drag it to move the window, drag its top edge to resize it ([#11](https://github.com/cbrnr/kymo/pull/11) by [Clemens Brunner](https://github.com/cbrnr)).
+
 ### 🌀 Changed
 - Raise the interface's contrast in both themes, draw text closer to how macOS does, and color selections in the system's accent color ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).
 - Use the system font by default on macOS and Windows ([#8](https://github.com/cbrnr/kymo/pull/8) by [Clemens Brunner](https://github.com/cbrnr)).

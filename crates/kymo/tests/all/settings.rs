@@ -80,6 +80,8 @@ fn saved_settings_read_back() {
         default_window_s: 7.5,
         antialias: true,
         scale_bars: false,
+        minimap: true,
+        minimap_height: 80.5,
         remove_dc: false,
         types: types(
             &[
@@ -139,6 +141,8 @@ fn unreadable_values_are_defaults_and_others_kept() {
         default_window_s: 5.0,
         antialias: true,
         scale_bars: false,
+        minimap: true,
+        minimap_height: 80.5,
         remove_dc: false,
         types: types(
             &[ChannelKind::EEG],
@@ -184,6 +188,20 @@ fn unreadable_values_are_defaults_and_others_kept() {
             "kymo.scale_bars",
             Settings {
                 scale_bars: defaults.scale_bars,
+                ..saved.clone()
+            },
+        ),
+        (
+            "kymo.minimap",
+            Settings {
+                minimap: defaults.minimap,
+                ..saved.clone()
+            },
+        ),
+        (
+            "kymo.minimap_height",
+            Settings {
+                minimap_height: defaults.minimap_height,
                 ..saved.clone()
             },
         ),
@@ -251,6 +269,8 @@ fn values_out_of_range_are_clamped() {
         default_window_s: 1e9,
         antialias: false,
         scale_bars: true,
+        minimap: false,
+        minimap_height: 1.0,
         remove_dc: true,
         types: TypeSettings::default(),
         auto_scale_on_open: false,
@@ -263,6 +283,7 @@ fn values_out_of_range_are_clamped() {
     assert_eq!(loaded.tile_cache_mb, TILE_CACHE_MB[0]);
     assert_eq!(loaded.gpu_memory_mb, *GPU_MEMORY_MB.last().unwrap());
     assert_eq!(loaded.default_window_s, *DEFAULT_WINDOW_S.end());
+    assert_eq!(loaded.minimap_height, kymo::ui::minimap::MIN_HEIGHT);
     storage.set_string("kymo.default_window_s", "-3".into());
     assert_eq!(
         Settings::load(Some(&storage)).default_window_s,

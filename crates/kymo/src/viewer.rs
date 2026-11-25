@@ -33,6 +33,7 @@ use crate::ui::header::{
     AnnotationPanel, DescriptionField, HeaderSource, description_field_id, header_panel,
     within_width,
 };
+use crate::ui::minimap::{self, Minimap};
 use crate::ui::palette::{annotation_color, bad_color, type_color};
 use crate::ui::{elide_middle, readout, scrollbar, status};
 use crate::view::{Area, ViewState};
@@ -161,9 +162,12 @@ pub struct Hover {
 pub struct Layout {
     pub traces: Rect,
     pub names: Rect,
-    /// The scrollbars for time (below the axis) and rows (right of the traces).
-    pub time_bar: Rect,
+    /// The scrollbars for time (below the axis, unless the minimap is there) and rows
+    /// (right of the traces).
+    pub time_bar: Option<Rect>,
     pub row_bar: Rect,
+    /// The minimap, below the axis, where it is shown.
+    pub minimap: Option<Rect>,
 }
 
 /// The status line's texts, on the left and the right.
@@ -193,6 +197,9 @@ pub struct Shown {
     /// The type settings, if a type's popup changed them (they apply to the viewer at
     /// once; the app keeps them).
     pub types: Option<TypeSettings>,
+    /// The minimap's height, if it was resized (it applies to the viewer at once; the app
+    /// keeps it).
+    pub minimap_height: Option<f32>,
 }
 
 pub struct Viewer {
@@ -230,6 +237,13 @@ pub struct Viewer {
     /// Whether scale bars are drawn, and those of the last frame with where they were.
     show_scale_bars: bool,
     scale_bars: Vec<(ScaleBar, Rect)>,
+    /// Whether the minimap is shown, its height in points as set, and its state.
+    show_minimap: bool,
+    minimap_height: f32,
+    minimap: Minimap,
+    /// The time under the pointer over the minimap, and the annotations there as the status
+    /// line shows them.
+    minimap_pointer: Option<(f64, String)>,
     /// Whether [`Action::AutoScale`] waits for a complete frame.
     auto_scale: bool,
     /// What was set per channel type (colors here; the view has the rest).
@@ -308,6 +322,10 @@ impl Viewer {
             antialias: false,
             show_scale_bars: true,
             scale_bars: Vec::new(),
+            show_minimap: false,
+            minimap_height: minimap::DEFAULT_HEIGHT,
+            minimap: Minimap::default(),
+            minimap_pointer: None,
             auto_scale: false,
             types: TypeSettings::default(),
             editing: false,
@@ -588,6 +606,13 @@ impl Viewer {
     /// Whether scale bars are drawn from the next frame on.
     pub fn set_scale_bars(&mut self, on: bool) {
         self.show_scale_bars = on;
+    }
+
+    /// Whether the minimap is shown in place of the time scrollbar, and its height in points
+    /// (before the window limits it), from the next frame on.
+    pub fn set_minimap(&mut self, on: bool, height: f32) {
+        self.show_minimap = on;
+        self.minimap_height = height;
     }
 
     /// The scale bars of the last frame, each with the rectangle of its bar (not its
@@ -939,7 +964,9 @@ impl Viewer {
                 self.relabel(id, description);
             }
         }
-        egui::CentralPanel::default().show(ui, |ui| self.trace_region(ui, gpu, keymap));
+        let minimap = egui::CentralPanel::default()
+            .show(ui, |ui| self.trace_region(ui, gpu, keymap))
+            .inner;
         self.sync_draft(ui.ctx());
 
         // The status line was laid out before the traces moved; show the new texts in the
@@ -953,6 +980,8 @@ impl Viewer {
             Some(Action::GoToTime)
         } else if info {
             Some(Action::RecordingInfo)
+        } else if minimap.hide {
+            Some(Action::ToggleMinimap)
         } else {
             toggle_dc.then_some(Action::ToggleDc)
         };
@@ -964,6 +993,7 @@ impl Viewer {
             action,
             channel_types,
             types,
+            minimap_height: minimap.height,
         }
     }
 
@@ -1016,12 +1046,15 @@ impl Viewer {
     fn status_line(&self) -> StatusLine {
         let service = self.service();
         let rec = &self.document.recording;
-        let left = self
-            .hover
-            .time
+        // Over the minimap, its time and annotations, without a channel.
+        let (time, channel, pointed) = match &self.minimap_pointer {
+            Some((time, under)) => (Some(*time), None, under.clone()),
+            None => (self.hover.time, self.hover.channel, self.pointed.clone()),
+        };
+        let left = time
             .map(|time| {
                 let rate = rec.sfreq();
-                let channel = self.hover.channel.map(|id| {
+                let channel = channel.map(|id| {
                     let info = rec.channel(id);
                     let view = self.view.tile_view(self.width_px.max(1));
                     let (unit, factor) = reading_unit(rec, &self.view, id);
@@ -1066,7 +1099,7 @@ impl Viewer {
         });
         let (left, pointed) = match measured {
             Some(details) => (details, String::new()),
-            None => (left, self.pointed.clone()),
+            None => (left, pointed),
         };
         let left = [mode.unwrap_or_default(), hint, left, pointed]
             .into_iter()
@@ -1088,8 +1121,9 @@ impl Viewer {
         }
     }
 
-    /// Channel names, traces, the time axis and both scrollbars.
-    fn trace_region(&mut self, ui: &mut Ui, gpu: &Gpu, keymap: &Keymap) {
+    /// Channel names, traces, the time axis, both scrollbars or the row scrollbar and the
+    /// minimap. Returns what the minimap asked for, its height already limited.
+    fn trace_region(&mut self, ui: &mut Ui, gpu: &Gpu, keymap: &Keymap) -> minimap::Shown {
         let full = ui.available_rect_before_wrap();
         let id = egui::Id::unique("kymo traces");
         let small = TextStyle::Small.resolve(ui.style());
@@ -1115,7 +1149,11 @@ impl Viewer {
         let left = px(full.left() + names_width);
         let right = px(full.right() - bar - 2.0).max(left);
         let top = px(full.top());
-        let bottom = px(full.bottom() - bar - axis_height).max(top);
+        let minimap_height = self
+            .show_minimap
+            .then(|| minimap::height(self.minimap_height, full.height()));
+        let below = minimap_height.unwrap_or(bar);
+        let bottom = px(full.bottom() - below - axis_height).max(top);
         let traces = Rect::from_min_max(pos2(left, top) / ppp, pos2(right, bottom) / ppp);
         let size_px = [(right - left) as u32, (bottom - top) as u32];
         let names = Rect::from_min_max(pos2(full.left(), traces.top()), traces.left_bottom());
@@ -1127,22 +1165,28 @@ impl Viewer {
             pos2(full.right() - bar, traces.top()),
             pos2(full.right(), traces.bottom()),
         );
-        let hbar = Rect::from_min_max(
-            pos2(traces.left(), full.bottom() - bar),
+        let below = Rect::from_min_max(
+            pos2(traces.left(), full.bottom() - below),
             pos2(traces.right(), full.bottom()),
         );
+        let (hbar, minimap_rect) = match minimap_height {
+            Some(_) => (None, Some(below)),
+            None => (Some(below), None),
+        };
         ui.advance_cursor_after_rect(full);
         if size_px[0] == 0 || size_px[1] == 0 {
             self.hover = Hover::default();
             self.pointed.clear();
+            self.minimap_pointer = None;
             self.scale_bars.clear();
-            return;
+            return minimap::Shown::default();
         }
         self.layout = Some(Layout {
             traces,
             names,
             time_bar: hbar,
             row_bar: vbar,
+            minimap: minimap_rect,
         });
         let area = Area {
             width: f64::from(traces.width()),
@@ -1151,15 +1195,47 @@ impl Viewer {
 
         self.handle_input(ui, id, keymap, traces, names, axis_rect, size_px[0]);
         self.names_edge(ui, id, names_width, traces);
-        if let Some(start) = scrollbar::show(
-            ui,
-            id.with("time"),
-            hbar,
-            false,
-            self.view.duration(),
-            self.view.time(),
-        ) {
+        if let Some(hbar) = hbar
+            && let Some(start) = scrollbar::show(
+                ui,
+                id.with("time"),
+                hbar,
+                false,
+                self.view.duration(),
+                self.view.time(),
+            )
+        {
             self.view.pan(start - self.view.start());
+        }
+        let mut asked = minimap::Shown::default();
+        self.minimap_pointer = None;
+        if let Some(rect) = minimap_rect {
+            asked = self.minimap.show(
+                ui,
+                id.with("minimap"),
+                rect,
+                size_px[0],
+                &minimap::Input {
+                    recording: &self.document.recording,
+                    store: &self.document.annotations,
+                    legend: &self.legend,
+                    duration: self.view.duration(),
+                    window: self.view.time(),
+                },
+            );
+            if let Some(start) = asked.start {
+                self.view.pan(start - self.view.start());
+            }
+            asked.height = asked.height.map(|h| minimap::height(h, full.height()));
+            if let Some(height) = asked.height {
+                self.minimap_height = height;
+            }
+            self.minimap_pointer = asked.pointer.take().map(|(time, under)| {
+                (
+                    time,
+                    status::annotations_text(under.iter().map(String::as_str)),
+                )
+            });
         }
         let rows = self.view.rows() as f64;
         if let Some(top) = scrollbar::show(
@@ -1366,6 +1442,7 @@ impl Viewer {
         }
         self.scale_bars = bars;
         self.measure_label_width = label_width.unwrap_or(0.0);
+        asked
     }
 
     /// The measurement over the traces: a shaded band between a line at either end, on

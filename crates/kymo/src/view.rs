@@ -657,6 +657,7 @@ impl ViewState {
             | Action::CheckForUpdates
             | Action::ToggleSidebar
             | Action::ToggleScaleBars
+            | Action::ToggleMinimap
             | Action::ToggleAntialias
             | Action::AutoScale
             | Action::StimEveryChange

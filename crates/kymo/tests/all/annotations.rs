@@ -4,7 +4,9 @@
 use std::collections::{BTreeSet, HashMap};
 
 use kymo::annotations::AnnotationColor::{self, Palette};
-use kymo::annotations::{COLORS, Legend, Mark, Marks, Span, marks, span_y, under};
+use kymo::annotations::{
+    COLORS, Legend, Mark, Marks, Span, marks, overview_marks, overview_under, span_y, under,
+};
 use kymo::view::ViewState;
 use kymo_core::testing::{MemData, single_grid};
 use kymo_core::{
@@ -378,6 +380,113 @@ proptest! {
             .collect();
         prop_assert_eq!(got, want);
     }
+}
+
+/// What `overview_marks` must cover: every shown annotation over the whole recording,
+/// spanning the strip's height.
+fn overview_brute_force(
+    store: &AnnotationStore,
+    legend: &Legend,
+    duration: f64,
+    width: u32,
+) -> Coverage {
+    let mut cover = Coverage::new();
+    let w = f64::from(width);
+    for a in store.iter() {
+        let d = &a.data;
+        let entry = legend.of(d).unwrap();
+        if !entry.shown {
+            continue;
+        }
+        let x0 = d.onset / duration * w;
+        let x1 = d.end() / duration * w;
+        let first = x0.floor().clamp(0.0, w - 1.0) as u32;
+        let (bands, lines) = cover.entry((entry.color, Span::All)).or_default();
+        if x1 - x0 < 1.0 {
+            lines.insert(first);
+        } else {
+            let end = (x1.ceil().min(w) as u32).max(first + 1);
+            bands.extend(first..end);
+        }
+    }
+    cover
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// The minimap's marks: every pixel column a shown annotation touches anywhere in the
+    /// recording holds a mark of its color over the whole height, channel and stim
+    /// annotations too, no other column does, and there are no labels.
+    #[test]
+    fn overview_marks_cover_exactly_the_shown_annotations(
+        annotations in proptest::collection::vec(annotation(), 0..200),
+        hidden in proptest::collection::vec(0..14usize, 0..4),
+        width in 1..2000u32,
+    ) {
+        let store = AnnotationStore::from_data(annotations);
+        let mut legend = Legend::new(&store, false);
+        for d in hidden {
+            legend.set_shown(None, &format!("d{d}"), false);
+        }
+        let marks = overview_marks(&store, &legend, 600.0, width);
+        check(&marks, &overview_brute_force(&store, &legend, 600.0, width), width)?;
+        prop_assert!(marks.labels.is_empty());
+    }
+
+    /// The annotations under the pointer over the minimap are exactly the shown ones with
+    /// a mark within `slack` columns of it, by onset.
+    #[test]
+    fn the_pointer_finds_the_overview_marks_under_it(
+        annotations in proptest::collection::vec(annotation(), 0..200),
+        hidden in proptest::collection::vec(0..14usize, 0..4),
+        width in 1..2000u32,
+        x in 0.0..1.0f64,
+        slack in 0..4u32,
+    ) {
+        let store = AnnotationStore::from_data(annotations);
+        let mut legend = Legend::new(&store, false);
+        for d in hidden {
+            legend.set_shown(None, &format!("d{d}"), false);
+        }
+        let x = x * f64::from(width);
+        let at = (x.floor() as u32).min(width - 1);
+        let near = at.saturating_sub(slack)..at + 1 + slack;
+        let want: Vec<_> = store
+            .iter()
+            .filter(|a| {
+                let alone = AnnotationStore::from_data(vec![a.data.clone()]);
+                overview_brute_force(&alone, &legend, 600.0, width)
+                    .into_values()
+                    .any(|(bands, lines)| bands.union(&lines).any(|c| near.contains(c)))
+            })
+            .map(|a| a.id)
+            .collect();
+        let got: Vec<_> = overview_under(&store, &legend, 600.0, width, x, slack)
+            .into_iter()
+            .map(|a| a.id)
+            .collect();
+        prop_assert_eq!(got, want);
+    }
+}
+
+/// Picking a color for a description counts as a change of the legend's colors, setting
+/// the same colors again doesn't.
+#[test]
+fn picked_colors_count_as_changes() {
+    let mut store = AnnotationStore::default();
+    insert(&mut store, data(1.0, 0.0, "a", &[]));
+    let mut legend = Legend::new(&store, false);
+    let before = legend.colors_revision();
+    let mut picked = kymo::annotations::AnnotationColors::new();
+    legend.apply_colors(&picked);
+    assert_eq!(legend.colors_revision(), before);
+    picked.insert("a".into(), [1, 2, 3]);
+    legend.apply_colors(&picked);
+    let after = legend.colors_revision();
+    assert!(after > before);
+    legend.apply_colors(&picked);
+    assert_eq!(legend.colors_revision(), after);
 }
 
 /// However many annotations there are, there are at most a few marks per pixel column.
