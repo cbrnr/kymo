@@ -348,6 +348,49 @@ fn clicking_a_name_toggles_bad() {
     assert!(!viewer(&harness).view().is_bad(a2));
 }
 
+/// Bad marks can be undone and redone, however they were made: a click on a trace's name,
+/// the selection bar. They don't mark the annotations edited.
+#[test]
+fn bad_marks_undo_and_redo() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let layout = viewer(&harness).layout().unwrap();
+    let rows = viewer(&harness).view().rows() as f32;
+    let row_y = |i: f32| layout.names.top() + (i + 0.5) * layout.names.height() / rows;
+    let bad = |h: &Harness<'_, KymoApp>| -> Vec<u32> {
+        viewer(h).view().bad_channels().map(|c| c.0).collect()
+    };
+    let undo = |h: &mut Harness<'_, KymoApp>| press(h, command(), Key::Z);
+    let redo = |h: &mut Harness<'_, KymoApp>| press(h, command() | Modifiers::SHIFT, Key::Z);
+
+    click(
+        &mut harness,
+        egui::pos2(layout.names.center().x, row_y(1.0)),
+    );
+    assert_eq!(bad(&harness), [1]);
+    assert!(!viewer(&harness).edited());
+    undo(&mut harness);
+    assert!(bad(&harness).is_empty());
+    redo(&mut harness);
+    assert_eq!(bad(&harness), [1]);
+
+    // The bar's marks, one step.
+    click_in_list(&mut harness, Role::Label, "A1");
+    harness
+        .get_by_role_and_label(Role::Label, "A2")
+        .click_modifiers(command());
+    harness.run_steps(2);
+    menu_path(&mut harness, &["Mark", "Mark 1 Channel as Bad"]);
+    assert_eq!(bad(&harness), [0, 1]);
+    menu_path(&mut harness, &["Mark", "Mark 2 Channels as Good"]);
+    assert!(bad(&harness).is_empty());
+    undo(&mut harness);
+    assert_eq!(bad(&harness), [0, 1]);
+    assert!(!viewer(&harness).edited());
+}
+
 /// A click anywhere on a row of the channel list selects it, and takes the only selected row
 /// out of the selection again; the selected channels' names in the traces are on the
 /// selection's fill. A row's checkbox says on hover what a click does.

@@ -1,11 +1,15 @@
-//! Undo and redo of annotation edits.
+//! Undo and redo of annotation edits and bad channel marks.
 //!
 //! An edit is recorded as the states of the annotations it changed, before and after, so
 //! one step can hold any number of changes (a drag that ends in a merge, say) and undoing
 //! or redoing it is setting each annotation to one side's state. Stim annotations are never
-//! edited, so they never appear here.
+//! edited, so they never appear here. Marking channels bad or good is a step of its own,
+//! the marks it changed; it doesn't count as an edit of the annotations (see
+//! [`History::edited`]).
 
-use kymo_core::{AnnotationData, AnnotationError, AnnotationId, AnnotationOp, AnnotationStore};
+use kymo_core::{
+    AnnotationData, AnnotationError, AnnotationId, AnnotationOp, AnnotationStore, ChannelId,
+};
 
 /// One annotation's content before and after an edit; `None` where it doesn't exist.
 #[derive(Clone, Debug, PartialEq)]
@@ -15,16 +19,36 @@ pub struct Change {
     pub after: Option<AnnotationData>,
 }
 
-/// One undoable edit: the annotations it changed. [`History::push`] keeps each once.
+/// One undoable edit's annotation changes. [`History::push`] keeps each annotation once.
 pub type Step = Vec<Change>;
+
+/// A channel's bad mark changed: the mark it got (`true` for bad); it had the other.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Mark {
+    pub channel: ChannelId,
+    pub bad: bool,
+}
+
+/// What an undoable edit changed: annotations, or channels' bad marks.
+#[derive(Clone, Debug, PartialEq)]
+struct Entry {
+    changes: Step,
+    marks: Vec<Mark>,
+}
+
+impl Entry {
+    fn edits_annotations(&self) -> bool {
+        !self.changes.is_empty()
+    }
+}
 
 /// The edits that can be undone and redone, most recent last.
 #[derive(Clone, Debug)]
 pub struct History {
-    undo: Vec<Step>,
-    redo: Vec<Step>,
-    /// How many steps were done at the saved state (at first, the opened one); `None` once
-    /// no undo or redo can return to it.
+    undo: Vec<Entry>,
+    redo: Vec<Entry>,
+    /// How many steps were done at the saved state of the annotations (at first, the
+    /// opened one); `None` once no undo or redo can return to it.
     saved: Option<usize>,
 }
 
@@ -40,9 +64,17 @@ impl Default for History {
 
 impl History {
     /// Whether the annotations differ from the saved state, the opened one until
-    /// [`mark_saved`](Self::mark_saved).
+    /// [`mark_saved`](Self::mark_saved): bad marks done or undone since don't count.
     pub fn edited(&self) -> bool {
-        self.saved != Some(self.undo.len())
+        let done = self.undo.len();
+        match self.saved {
+            None => true,
+            Some(saved) if saved <= done => self.undo[saved..].iter().any(Entry::edits_annotations),
+            // Undone past it: the steps between are the last undone, at the redo stack's top.
+            Some(saved) => self.redo[self.redo.len() - (saved - done)..]
+                .iter()
+                .any(Entry::edits_annotations),
+        }
     }
 
     /// Makes the current state the saved one.
@@ -71,14 +103,35 @@ impl History {
             }
         }
         step.retain(|c| c.before != c.after);
-        if step.is_empty() {
+        self.record(Entry {
+            changes: step,
+            marks: Vec::new(),
+        })
+    }
+
+    /// Records channels' bad marks already changed in the view as one step (a step without
+    /// any is dropped), which clears what could be redone. Returns whether it was recorded.
+    pub fn push_marks(&mut self, marks: Vec<Mark>) -> bool {
+        self.record(Entry {
+            changes: Step::new(),
+            marks,
+        })
+    }
+
+    fn record(&mut self, entry: Entry) -> bool {
+        if entry.changes.is_empty() && entry.marks.is_empty() {
             return false;
         }
-        // The saved state was undone: with redo gone, it can't come back.
-        if self.saved.is_some_and(|saved| saved > self.undo.len()) {
-            self.saved = None;
+        // The saved state was undone: with redo gone, it can't come back, unless the steps
+        // between left the annotations alone.
+        let done = self.undo.len();
+        if let Some(saved) = self.saved
+            && saved > done
+        {
+            let lost = &self.redo[self.redo.len() - (saved - done)..];
+            self.saved = (!lost.iter().any(Entry::edits_annotations)).then_some(done);
         }
-        self.undo.push(step);
+        self.undo.push(entry);
         self.redo.clear();
         true
     }
@@ -103,23 +156,37 @@ impl History {
         Ok(())
     }
 
-    /// Undoes the last edit; returns the annotations it changed, or `None` if there was
-    /// nothing to undo.
-    pub fn undo(&mut self, store: &mut AnnotationStore) -> Option<Vec<AnnotationId>> {
-        let step = self.undo.pop()?;
-        restore(store, &step, |c| &c.before);
-        let ids = step.iter().map(|c| c.id).collect();
-        self.redo.push(step);
+    /// Undoes the last edit, giving bad marks back to `set_bad`; returns the annotations it
+    /// changed, or `None` if there was nothing to undo.
+    pub fn undo(
+        &mut self,
+        store: &mut AnnotationStore,
+        mut set_bad: impl FnMut(ChannelId, bool),
+    ) -> Option<Vec<AnnotationId>> {
+        let entry = self.undo.pop()?;
+        restore(store, &entry.changes, |c| &c.before);
+        for mark in entry.marks.iter().rev() {
+            set_bad(mark.channel, !mark.bad);
+        }
+        let ids = entry.changes.iter().map(|c| c.id).collect();
+        self.redo.push(entry);
         Some(ids)
     }
 
-    /// Redoes the last undone edit; returns the annotations it changed, or `None` if there
-    /// was nothing to redo.
-    pub fn redo(&mut self, store: &mut AnnotationStore) -> Option<Vec<AnnotationId>> {
-        let step = self.redo.pop()?;
-        restore(store, &step, |c| &c.after);
-        let ids = step.iter().map(|c| c.id).collect();
-        self.undo.push(step);
+    /// Redoes the last undone edit, giving bad marks to `set_bad`; returns the annotations
+    /// it changed, or `None` if there was nothing to redo.
+    pub fn redo(
+        &mut self,
+        store: &mut AnnotationStore,
+        mut set_bad: impl FnMut(ChannelId, bool),
+    ) -> Option<Vec<AnnotationId>> {
+        let entry = self.redo.pop()?;
+        restore(store, &entry.changes, |c| &c.after);
+        for mark in &entry.marks {
+            set_bad(mark.channel, mark.bad);
+        }
+        let ids = entry.changes.iter().map(|c| c.id).collect();
+        self.undo.push(entry);
         Some(ids)
     }
 }

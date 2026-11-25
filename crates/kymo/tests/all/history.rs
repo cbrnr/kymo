@@ -1,8 +1,11 @@
-//! Undo and redo against a model that keeps every state: after any sequence of edits,
-//! undos, redos and stim updates, the store holds exactly the state the model is at.
+//! Undo and redo against a model that keeps every state: after any sequence of edits, bad
+//! marks, undos, redos and stim updates, the store and the marks hold exactly the state the
+//! model is at.
 
-use kymo::history::{Change, History, set};
-use kymo_core::{Annotation, AnnotationData, AnnotationId, AnnotationStore, Origin};
+use std::collections::BTreeSet;
+
+use kymo::history::{Change, History, Mark, set};
+use kymo_core::{Annotation, AnnotationData, AnnotationId, AnnotationStore, ChannelId, Origin};
 use proptest::prelude::*;
 
 fn data(onset: f64, duration: f64, description: &str, origin: Origin) -> AnnotationData {
@@ -49,6 +52,8 @@ enum Op {
     Save,
     /// New stim annotations, which no undo touches.
     Stim(u8),
+    /// Channels (of four) marked bad or good, as one step.
+    Mark(Vec<u8>, bool),
 }
 
 fn any_op() -> impl Strategy<Value = Op> {
@@ -64,6 +69,8 @@ fn any_op() -> impl Strategy<Value = Op> {
         2 => Just(Op::Redo),
         1 => Just(Op::Save),
         1 => (0u8..4).prop_map(Op::Stim),
+        2 => (proptest::collection::vec(0u8..4, 0..3), any::<bool>())
+            .prop_map(|(c, bad)| Op::Mark(c, bad)),
     ]
 }
 
@@ -110,13 +117,29 @@ proptest! {
             .collect();
         let mut store = AnnotationStore::from_data(initial);
         let mut history = History::default();
-        // Every state the edits went through, and the one the store is at.
-        let mut states = vec![edited(&store)];
+        // The bad channels, as the view keeps them.
+        let mut bad: BTreeSet<ChannelId> = BTreeSet::new();
+        let set_bad = |bad: &mut BTreeSet<ChannelId>, c: ChannelId, on: bool| {
+            if on {
+                bad.insert(c);
+            } else {
+                bad.remove(&c);
+            }
+        };
+        // Every state the edits went through (the annotations and the bad channels), and
+        // the one the store is at.
+        let mut states = vec![(edited(&store), bad.clone())];
         let mut at: usize = 0;
-        // The state saved, the opened one at first, while it can be reached.
+        // The state the annotations were saved at, the opened one at first, while it can
+        // be reached.
         let mut saved: Option<usize> = Some(0);
+        // Whether the step to state `i` changed the annotations, not only bad marks.
+        let edits = |states: &[(Vec<Annotation>, BTreeSet<ChannelId>)], i: usize| {
+            states[i].0 != states[i - 1].0
+        };
         for op in ops {
             let before = edited(&store);
+            let bad_before = bad.clone();
             let ids: Vec<AnnotationId> = before.iter().map(|a| a.id).collect();
             let pick = |n: usize| (!ids.is_empty()).then(|| ids[n % ids.len()]);
             let mut changed: Option<Vec<AnnotationId>> = None;
@@ -168,15 +191,28 @@ proptest! {
                 }
                 Op::Undo => {
                     prop_assert_eq!(history.can_undo(), at > 0);
-                    changed = history.undo(&mut store);
+                    changed = history.undo(&mut store, |c, on| set_bad(&mut bad, c, on));
                     prop_assert_eq!(changed.is_some(), at > 0);
                     at = at.saturating_sub(1);
                 }
                 Op::Redo => {
                     prop_assert_eq!(history.can_redo(), at + 1 < states.len());
-                    changed = history.redo(&mut store);
+                    changed = history.redo(&mut store, |c, on| set_bad(&mut bad, c, on));
                     prop_assert_eq!(changed.is_some(), at + 1 < states.len());
                     at = (at + 1).min(states.len() - 1);
+                }
+                Op::Mark(channels, on) => {
+                    let mut marks: Vec<Mark> = Vec::new();
+                    for c in channels {
+                        let channel = ChannelId(u32::from(c));
+                        if bad.contains(&channel) != on && marks.iter().all(|m| m.channel != channel) {
+                            marks.push(Mark { channel, bad: on });
+                        }
+                    }
+                    for mark in &marks {
+                        set_bad(&mut bad, mark.channel, on);
+                    }
+                    history.push_marks(marks);
                 }
                 Op::Save => {
                     history.mark_saved();
@@ -189,38 +225,45 @@ proptest! {
                     store.replace_origin(Origin::Stim, events).unwrap();
                 }
             }
-            let now = edited(&store);
+            let now = (edited(&store), bad.clone());
             match changed.is_some() {
-                // An undo or redo: the store is at the model's state, and it names exactly
-                // the annotations that changed.
+                // An undo or redo: the store and the marks are at the model's state, and it
+                // names exactly the annotations that changed.
                 true => {
                     prop_assert_eq!(&now, &states[at]);
                     let mut changed = changed.unwrap();
                     changed.sort();
-                    prop_assert_eq!(changed, differing(&before, &now));
+                    prop_assert_eq!(changed, differing(&before, &now.0));
                 }
-                // An edit: a new state, unless it changed nothing; redo is gone.
-                false if now != before => {
-                    states.truncate(at + 1);
-                    if saved.is_some_and(|s| s > at) {
-                        saved = None;
+                // An edit: a new state, unless it changed nothing; redo is gone, and the
+                // saved state with it if it was undone, unless the steps back to it only
+                // marked channels.
+                false if now != (before, bad_before) => {
+                    if let Some(s) = saved.filter(|&s| s > at) {
+                        saved = (!(at + 1..=s).any(|i| edits(&states, i))).then_some(at);
                     }
+                    states.truncate(at + 1);
                     states.push(now);
                     at += 1;
                     prop_assert!(!history.can_redo());
                 }
                 false => prop_assert_eq!(&now, &states[at]),
             }
-            prop_assert_eq!(history.edited(), saved != Some(at));
+            // Edited while a step between the saved state and this one changed annotations.
+            let expected = match saved {
+                None => true,
+                Some(s) => (s.min(at) + 1..=s.max(at)).any(|i| edits(&states, i)),
+            };
+            prop_assert_eq!(history.edited(), expected);
         }
         let stim_now = stim(&store);
         // Undoing everything restores the start, redoing everything the end; stim
         // annotations stay as they are.
         let last = states.len() - 1;
-        while history.undo(&mut store).is_some() {}
-        prop_assert_eq!(edited(&store), states[0].clone());
-        while history.redo(&mut store).is_some() {}
-        prop_assert_eq!(edited(&store), states[last].clone());
+        while history.undo(&mut store, |c, on| set_bad(&mut bad, c, on)).is_some() {}
+        prop_assert_eq!((edited(&store), bad.clone()), states[0].clone());
+        while history.redo(&mut store, |c, on| set_bad(&mut bad, c, on)).is_some() {}
+        prop_assert_eq!((edited(&store), bad.clone()), states[last].clone());
         prop_assert_eq!(stim(&store), stim_now);
     }
 }
@@ -238,4 +281,5 @@ fn a_step_that_changes_nothing_is_not_recorded() {
     history.edit(&mut store, vec![(gone, None)]).unwrap();
     assert!(!history.can_undo());
     assert!(!history.push(Vec::new()));
+    assert!(!history.push_marks(Vec::new()));
 }

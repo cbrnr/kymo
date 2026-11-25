@@ -182,7 +182,15 @@ pub fn header_panel(
             });
         legend_rect = Some(panel.response.rect);
     }
-    let all_types = channel_list(ui, (recording, platform), document, view, types, rule);
+    let mut marks = None;
+    let all_types = channel_list(
+        ui,
+        (recording, platform),
+        document,
+        (view, &mut marks),
+        types,
+        rule,
+    );
     // On top of both lists, as each would take the drag near the line between them.
     if let Some(rect) = legend_rect {
         let folded = ui
@@ -199,6 +207,7 @@ pub fn header_panel(
         relabel,
         info,
         all_types,
+        marks,
     }
 }
 
@@ -210,7 +219,12 @@ pub struct HeaderResponse {
     pub info: bool,
     /// Whether a type's menu asked for the Channel Types window.
     pub all_types: bool,
+    /// Channels to mark bad (`true`) or good, which the viewer does so it can be undone.
+    pub marks: Marks,
 }
+
+/// Channels to mark bad (`true`) or good, if any.
+pub type Marks = Option<(Vec<ChannelId>, bool)>;
 
 /// The Format row's value: `text` and an ⓘ after it, one button that opens Recording Info
 /// (named "Recording Info" for screen readers, with `text` as its value, and the shortcut
@@ -1123,7 +1137,7 @@ fn channel_list(
     ui: &mut Ui,
     (recording, platform): (u64, Platform),
     document: &Document,
-    view: &mut ViewState,
+    (view, marks): (&mut ViewState, &mut Marks),
     types: &mut TypeSettings,
     rule: f32,
 ) -> bool {
@@ -1194,7 +1208,7 @@ fn channel_list(
     egui::Panel::bottom("selection bar")
         .resizable(false)
         .frame(Frame::NONE.inner_margin(Margin::symmetric(0, 6)))
-        .show(ui, |ui| selection_bar(ui, view, types, platform));
+        .show(ui, |ui| selection_bar(ui, (view, marks), types, platform));
     let area = from_top(ui, "channels", recording, ScrollArea::vertical())
         .auto_shrink(false)
         .show_rows(ui, row_height, items.len(), |ui, rows| {
@@ -1402,7 +1416,7 @@ fn channel_list(
                 });
                 accessible_label(ui, &response, format!("{name} bad"));
                 if response.clicked() {
-                    view.toggle_bad(id);
+                    *marks = Some((vec![id], !bad));
                 }
                 // Everything but the indent and the name, without the gap before the next
                 // column; in whole points, so positions rounded to pixels don't change it
@@ -1454,7 +1468,7 @@ fn channel_list(
                     view.rejoin(&ids);
                 }
                 if let Some(bad) = choice.bad {
-                    view.set_bad(id, bad);
+                    *marks = Some((vec![id], bad));
                 }
                 all_types |= choice.all_types;
                 if let Some(full) = full {
@@ -1524,7 +1538,12 @@ pub const DESELECT: &str = "Deselect";
 /// Bad for those that are good, Mark as Good for those that are bad, saying how many each
 /// marks), Type (Change Type To's items) and Scale (up and down, with their shortcuts and
 /// the scroll gesture, and Scale With Type).
-fn selection_bar(ui: &mut Ui, view: &mut ViewState, types: &mut TypeSettings, platform: Platform) {
+fn selection_bar(
+    ui: &mut Ui,
+    (view, marks): (&mut ViewState, &mut Marks),
+    types: &mut TypeSettings,
+    platform: Platform,
+) {
     let row_height = ui.spacing().interact_size.y;
     ui.set_min_height(2.0 * row_height + ui.spacing().item_spacing.y);
     let selected = view.selected();
@@ -1598,9 +1617,7 @@ fn selection_bar(ui: &mut Ui, view: &mut ViewState, types: &mut TypeSettings, pl
         });
     });
     if let Some(bad) = mark {
-        for &c in &selected {
-            view.set_bad(c, bad);
-        }
+        *marks = Some((selected.clone(), bad));
     }
     retype(ui, view, &selected, picked);
     if let Some(action) = scale {

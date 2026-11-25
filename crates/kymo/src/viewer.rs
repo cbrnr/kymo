@@ -19,7 +19,7 @@ use crate::action::{Action, Gesture};
 use crate::annotations::{self, Legend, Marks};
 use crate::annotations::{AnnotationColor, AnnotationColors};
 use crate::document::{Document, Summary, format_duration};
-use crate::history::{self, Change, History};
+use crate::history::{self, Change, History, Mark};
 use crate::keymap::{Keymap, Platform};
 use crate::measure::{self, Measurement, Span};
 use crate::render::{Frame, Scene};
@@ -507,6 +507,20 @@ impl Viewer {
         refused
     }
 
+    /// Marks `channels` bad (or good) as one step that can be undone; those marked so
+    /// already are left out.
+    pub fn mark_bad(&mut self, channels: &[ChannelId], bad: bool) {
+        let marks: Vec<Mark> = channels
+            .iter()
+            .filter(|&&c| self.view.is_bad(c) != bad)
+            .map(|&channel| Mark { channel, bad })
+            .collect();
+        for mark in &marks {
+            self.view.set_bad(mark.channel, bad);
+        }
+        self.history.push_marks(marks);
+    }
+
     /// Adds `annotations` (read from a file) as one step, as they are: no merging.
     pub fn add_annotations(&mut self, annotations: Vec<AnnotationData>) {
         let store = &mut self.document.annotations;
@@ -519,7 +533,7 @@ impl Viewer {
         self.legend.sync(&self.document.annotations);
     }
 
-    /// The annotation edits that can be undone and redone.
+    /// The annotation edits and bad marks that can be undone and redone.
     pub fn history(&self) -> &History {
         &self.history
     }
@@ -681,12 +695,18 @@ impl Viewer {
                 return true;
             }
             Action::Undo => {
-                let changed = self.history.undo(&mut self.document.annotations);
+                let view = &mut self.view;
+                let changed = self.history.undo(&mut self.document.annotations, |c, bad| {
+                    view.set_bad(c, bad)
+                });
                 self.after_history(changed);
                 return true;
             }
             Action::Redo => {
-                let changed = self.history.redo(&mut self.document.annotations);
+                let view = &mut self.view;
+                let changed = self.history.redo(&mut self.document.annotations, |c, bad| {
+                    view.set_bad(c, bad)
+                });
                 self.after_history(changed);
                 return true;
             }
@@ -907,6 +927,7 @@ impl Viewer {
         let mut go_to = false;
         let mut info = false;
         let mut channel_types = false;
+        let mut marks = None;
         let types_before = self.types.clone();
         egui::Panel::bottom("status").show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -969,7 +990,11 @@ impl Viewer {
                     relabel = header.relabel;
                     info = header.info;
                     channel_types = header.all_types;
+                    marks = header.marks;
                 });
+            if let Some((channels, bad)) = marks {
+                self.mark_bad(&channels, bad);
+            }
             if let Some(description) = relabel
                 && let Some(id) = self.selected
             {
@@ -1885,7 +1910,8 @@ impl Viewer {
         if names_response.clicked()
             && let Some(channel) = pressed
         {
-            self.view.toggle_bad(channel);
+            // That channel alone, selected or not: the traces don't act on the selection.
+            self.mark_bad(&[channel], !self.view.is_bad(channel));
         }
         if let Some(channel) = hovered {
             let mark = if self.view.is_bad(channel) {
