@@ -20,7 +20,6 @@ use kymo::settings::{Settings, Theme, load_annotation_colors};
 use kymo::types::TypeSettings;
 use kymo::ui::axis::Clock;
 use kymo::ui::gpu::Gpu;
-use kymo::ui::header::DESELECT;
 use kymo::ui::palette::{annotation_color, trace_color};
 use kymo::ui::types::{ALL_TYPES, CHANGE_TYPE, FROM_FILE, NEW_TYPE, OTHER_TYPES};
 use kymo::ui::{minimap, scrollbar, status};
@@ -2182,7 +2181,7 @@ fn type_changes_show_complete_in_the_next_frame() {
 /// A click in a channel's row selects it, ⌘-click adds or takes one out, ⇧-click selects
 /// the rows from the last clicked; the selection bar's Type menu acts on every selected
 /// channel (Other Types, filtered), a row's menu on its channel alone, a type's menu on its
-/// channels. Esc and the bar's Deselect clear the selection.
+/// channels. Esc and a click on the only selected row clear the selection.
 #[test]
 fn selected_channels_change_type_together() {
     use egui::accesskit::Role;
@@ -2244,8 +2243,7 @@ fn selected_channels_change_type_together() {
     assert!(selected(&harness).is_empty());
     click_in_list(&mut harness, Role::Label, "A2");
     assert_eq!(selected(&harness), [1]);
-    harness.get_by_label(DESELECT).click();
-    harness.run_steps(2);
+    click_in_list(&mut harness, Role::Label, "A2");
     assert!(selected(&harness).is_empty());
 
     // The type's menu returns them both, its file's type differing.

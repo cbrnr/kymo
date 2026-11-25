@@ -1529,12 +1529,9 @@ fn channel_list(
     all_types
 }
 
-/// What the selection bar's button that clears the selection is named.
-pub const DESELECT: &str = "Deselect";
-
 /// The selection bar below the channel list, two rows high whatever it shows: with nothing
-/// selected, how to select (with `platform`'s keys); with channels selected, how many and
-/// Deselect, then what acts on them all: Hide (Show while all are hidden), Mark (Mark as
+/// selected, how to select (with `platform`'s keys); with channels selected, how many, then
+/// what acts on them all: Hide (Show while all are hidden), Mark (Mark as
 /// Bad for those that are good, Mark as Good for those that are bad, saying how many each
 /// marks), Type (Change Type To's items) and Scale (up and down, with their shortcuts and
 /// the scroll gesture, and Scale With Type).
@@ -1548,11 +1545,10 @@ fn selection_bar(
     ui.set_min_height(2.0 * row_height + ui.spacing().item_spacing.y);
     let selected = view.selected();
     if selected.is_empty() {
-        let keys = match platform {
-            Platform::Mac => "\u{2318}-click or \u{21e7}-click",
-            Platform::Windows | Platform::Linux => "Ctrl-click or Shift-click",
+        let hint = match platform {
+            Platform::Mac => "Click, \u{2318}-click or \u{21e7}-click to select.",
+            Platform::Windows | Platform::Linux => "Click, Ctrl-click or Shift-click to select.",
         };
-        let hint = format!("Click channels to select them; {keys} for more.");
         ui.add(Label::new(RichText::new(hint).weak()).wrap());
         return;
     }
@@ -1560,14 +1556,6 @@ fn selection_bar(
     ui.horizontal(|ui| {
         ui.set_min_height(row_height);
         ui.label(format!("{n} channel{} selected", plural(n)));
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let deselect = ui
-                .add(text_button(DESELECT, None))
-                .on_hover_text("Deselect All Channels (Esc)");
-            if deselect.clicked() {
-                view.clear_selection();
-            }
-        });
     });
     let kinds: Vec<ChannelKind> = selected.iter().map(|&c| view.kind_of(c).clone()).collect();
     let targets = targets_of(view, &selected, &kinds);
