@@ -6,6 +6,7 @@
 
 ### 🔧 Fixed
 - Stop the channel names column from being dragged wider than its longest name needs ([#15](https://github.com/cbrnr/kymo/pull/15) by [Clemens Brunner](https://github.com/cbrnr)).
+- Stop offering to drag the channel names column's edge where it can't move, and point its cursor only the way it can go at either limit ([#19](https://github.com/cbrnr/kymo/pull/19) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ## [0.2.0] · 2026-11-25
 ### ✨ Added

@@ -2,6 +2,7 @@
 //! and scrollbars, and the status line.
 
 use std::cell::Cell;
+use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -54,6 +55,9 @@ const NAMES_DRAG_MIN_EMS: f32 = 3.0;
 const NAMES_DRAG_MAX_FRACTION: f32 = 0.5;
 /// How far from the boundary between names and traces it can be grabbed, in points.
 const NAMES_EDGE_GRAB: f32 = 3.0;
+/// Room in points, between the names column's narrowest and widest, below which its edge
+/// doesn't drag.
+const NAMES_EDGE_SLACK: f32 = 2.0;
 /// Padding around channel names, in points.
 const NAME_PADDING: f32 = 6.0;
 /// Length of the axis' tick marks, in points.
@@ -1176,11 +1180,13 @@ impl Viewer {
         let bar = scrollbar::THICKNESS;
         let widest = self.names_width(ui, &body);
         let fitted = widest.min(NAMES_MAX_EMS * body.size) + 2.0 * NAME_PADDING;
+        // No wider than all names need, as more room would show nothing more.
+        let widest_drag = (widest + 2.0 * NAME_PADDING).min(full.width() * NAMES_DRAG_MAX_FRACTION);
+        let narrowest_drag = (NAMES_DRAG_MIN_EMS * body.size + 2.0 * NAME_PADDING)
+            .min(fitted)
+            .min(widest_drag);
         let names_width = match self.names_dragged {
-            // No wider than all names need, as more room would show nothing more.
-            Some(width) => width
-                .max((NAMES_DRAG_MIN_EMS * body.size + 2.0 * NAME_PADDING).min(fitted))
-                .min((widest + 2.0 * NAME_PADDING).min(full.width() * NAMES_DRAG_MAX_FRACTION)),
+            Some(width) => width.clamp(narrowest_drag, widest_drag),
             None => fitted.min(full.width() * NAMES_MAX_FRACTION),
         };
         // The room for a name: from the column's width before the trace area's edge is
@@ -1241,7 +1247,7 @@ impl Viewer {
         };
 
         self.handle_input(ui, id, keymap, traces, names, axis_rect, size_px[0]);
-        self.names_edge(ui, id, names_width, traces);
+        self.names_edge(ui, id, names_width, narrowest_drag..=widest_drag, traces);
         if let Some(hbar) = hbar
             && let Some(start) = scrollbar::show(
                 ui,
@@ -2119,13 +2125,33 @@ impl Viewer {
     /// The boundary between the names column (`width` wide) and `traces`: dragging it sets
     /// the column's width while the recording is open, a double click fits the names again.
     /// Interacted with after the names and traces, so it is on top of both near the edge.
-    fn names_edge(&mut self, ui: &Ui, id: egui::Id, width: f32, traces: Rect) {
+    fn names_edge(
+        &mut self,
+        ui: &Ui,
+        id: egui::Id,
+        width: f32,
+        limits: RangeInclusive<f32>,
+        traces: Rect,
+    ) {
+        // An edge that can't move offers no drag, as when all names fit in the narrowest
+        // column.
+        if limits.end() - limits.start() < NAMES_EDGE_SLACK {
+            return;
+        }
         let x = traces.left();
         let edge =
             Rect::from_x_y_ranges(x - NAMES_EDGE_GRAB..=x + NAMES_EDGE_GRAB, traces.y_range());
         let response = ui.interact(edge, id.with("names edge"), Sense::click_and_drag());
         if response.hovered() || response.dragged() {
-            ui.ctx().set_cursor_icon(CursorIcon::ResizeHorizontal);
+            // Pointing only the way the edge can still go at either limit.
+            let cursor = if width >= limits.end() - NAMES_EDGE_SLACK / 2.0 {
+                CursorIcon::ResizeWest
+            } else if width <= limits.start() + NAMES_EDGE_SLACK / 2.0 {
+                CursorIcon::ResizeEast
+            } else {
+                CursorIcon::ResizeHorizontal
+            };
+            ui.ctx().set_cursor_icon(cursor);
             // Just inside the names, as the traces paint over their own left edge.
             let stroke = ui.visuals().widgets.hovered.fg_stroke;
             ui.painter().vline(x - 1.0, traces.y_range(), stroke);
