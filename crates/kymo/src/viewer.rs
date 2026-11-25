@@ -1217,7 +1217,6 @@ impl Viewer {
                 rect,
                 size_px[0],
                 &minimap::Input {
-                    recording: &self.document.recording,
                     store: &self.document.annotations,
                     legend: &self.legend,
                     duration: self.view.duration(),

@@ -1,19 +1,13 @@
-//! The minimap's geometry: its height, where times and the window lie on it, where a press
-//! moves the window, and which columns show gaps (against brute force over the samples).
-
-use std::ops::Range;
+//! The minimap's geometry and pixels: its height, where times and the window lie on it,
+//! where a press moves the window, and how its row of pixels lays the marks.
 
 use eframe::egui::{Color32, Rangef};
 use kymo::annotations::{AnnotationColor, Mark, Marks, Span};
 use kymo::ui::minimap::{
-    DEFAULT_HEIGHT, MAX_FRACTION, MIN_HEIGHT, MIN_WINDOW, gaps, height, pixels, start_for, time_at,
+    DEFAULT_HEIGHT, MAX_FRACTION, MIN_HEIGHT, MIN_WINDOW, height, pixels, start_for, time_at,
     window_on, x_at,
 };
-use kymo_core::testing::{MemData, opened};
-use kymo_core::{Recording, SampleType};
 use proptest::prelude::*;
-
-use crate::common::{channel, grid};
 
 #[test]
 fn the_height_stays_within_its_limits() {
@@ -104,89 +98,9 @@ fn a_press_moves_the_window_as_far_as_the_recording_goes() {
     assert_eq!(start_for(f64::NAN, 10.0, 20.0, 600.0), 0.0);
 }
 
-/// Present samples as sorted, disjoint ranges of a grid `len` long, from random cut points.
-fn segments(len: u64) -> impl Strategy<Value = Vec<Range<u64>>> {
-    proptest::collection::btree_set(0..len, 0..12).prop_map(move |cuts| {
-        let mut cuts: Vec<u64> = cuts.into_iter().collect();
-        cuts.insert(0, 0);
-        cuts.push(len);
-        cuts.windows(2)
-            .enumerate()
-            .filter(|(i, w)| i % 2 == 0 && w[0] < w[1])
-            .map(|(_, w)| w[0]..w[1])
-            .collect()
-    })
-}
-
-/// The columns no present sample of any grid touches: a sample takes its period from its
-/// time, and touches every column that period overlaps (at least the column it starts in).
-fn brute_gaps(rec: &Recording, width: u32) -> Vec<u32> {
-    let duration = rec.duration();
-    let w = f64::from(width);
-    let mut covered = vec![false; width as usize];
-    for grid in rec.grids() {
-        for segment in grid.segments() {
-            for n in segment.clone() {
-                let t = grid.time_of(n);
-                let x0 = x_at(t, duration, w);
-                let x1 = x_at(t + 1.0 / grid.rate(), duration, w);
-                for (c, covered) in covered.iter_mut().enumerate() {
-                    let c = c as f64;
-                    if (c < x1 && c + 1.0 > x0) || c == x0.floor() {
-                        *covered = true;
-                    }
-                }
-            }
-        }
-    }
-    (0..width).filter(|&c| !covered[c as usize]).collect()
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig::with_cases(128))]
-
-    /// Two grids at different rates with gaps of their own: a column shows a gap exactly
-    /// where neither has a sample, in runs that neither touch nor overlap.
-    #[test]
-    fn gaps_are_where_no_grid_has_samples(
-        a in segments(600),
-        b in segments(222),
-        width in 1..400u32,
-    ) {
-        let grids = vec![
-            grid(100.0, 600, a, SampleType::I16, 0..1),
-            grid(37.0, 222, b, SampleType::I16, 1..2),
-        ];
-        let channels = vec![channel("a", 0, 1.0, 0.0), channel("b", 1, 1.0, 0.0)];
-        let data = vec![MemData::I16(vec![vec![0; 600]]), MemData::I16(vec![vec![0; 222]])];
-        let Ok((rec, _)) = Recording::new(opened(channels, grids, data)) else {
-            // Both grids empty.
-            return Ok(());
-        };
-        let runs = gaps(&rec, rec.duration(), width);
-        for pair in runs.windows(2) {
-            prop_assert!(pair[0].end < pair[1].start, "{runs:?}");
-        }
-        let got: Vec<u32> = runs.into_iter().flatten().collect();
-        prop_assert_eq!(got, brute_gaps(&rec, width));
-    }
-}
-
 #[test]
-fn a_recording_without_gaps_shows_none() {
-    let grids = vec![grid(100.0, 6000, vec![0..6000], SampleType::I16, 0..1)];
-    let channels = vec![channel("a", 0, 1.0, 0.0)];
-    let data = vec![MemData::I16(vec![vec![0; 6000]])];
-    let (rec, _) = Recording::new(opened(channels, grids, data)).unwrap();
-    for width in [1, 7, 800, 6000, 9000] {
-        assert!(gaps(&rec, rec.duration(), width).is_empty(), "{width}");
-    }
-}
-
-#[test]
-fn the_row_of_pixels_lays_lines_over_bands_over_gaps() {
+fn the_row_of_pixels_lays_lines_over_bands() {
     let background = Color32::from_rgb(10, 10, 10);
-    let gap = Color32::from_rgba_premultiplied(40, 40, 40, 128);
     let red = Color32::from_rgb(200, 0, 0);
     let green = Color32::from_rgb(0, 200, 0);
     let mark = |columns, color| Mark {
@@ -195,7 +109,10 @@ fn the_row_of_pixels_lays_lines_over_bands_over_gaps() {
         color,
     };
     let marks = Marks {
-        bands: vec![mark(2..6, AnnotationColor::Palette(0))],
+        bands: vec![
+            mark(2..6, AnnotationColor::Palette(0)),
+            mark(5..8, AnnotationColor::Palette(1)),
+        ],
         // One beyond the strip, which leaves it alone.
         lines: vec![
             mark(4..5, AnnotationColor::Palette(1)),
@@ -207,18 +124,17 @@ fn the_row_of_pixels_lays_lines_over_bands_over_gaps() {
         AnnotationColor::Palette(0) => red,
         _ => green,
     };
-    let row = pixels(&marks, &[5..8], 10, background, gap, color_of);
+    let row = pixels(&marks, 10, background, color_of);
     assert_eq!(row.len(), 10);
     let band = row[2];
     assert_eq!(row[3], band);
-    assert_ne!(band, background);
-    // Translucent, so the background shows through, the gap too.
+    // Translucent, so the background shows through.
     assert!(band.r() < red.r() && band.r() > background.r(), "{band:?}");
+    // A line is solid, over the band.
     assert_eq!(row[4], green);
-    // The band over the gap: neither alone.
+    // Where two bands overlap, both show.
     assert_ne!(row[5], band);
-    assert_ne!(row[5], background.blend(gap));
-    assert_eq!(row[6], background.blend(gap));
+    assert_ne!(row[5], row[6]);
     assert_eq!(row[7], row[6]);
     for c in [0, 1, 8, 9] {
         assert_eq!(row[c], background, "{c}");

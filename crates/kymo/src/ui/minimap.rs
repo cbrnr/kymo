@@ -1,12 +1,11 @@
 //! The minimap: a strip below the time axis, in place of the time scrollbar, over the
-//! whole recording. It shows the annotations, the stretches without samples, and where the
-//! window on screen lies. A press centers the window there and dragging on moves it, a
+//! whole recording. It shows the annotations and where the window on screen lies. A press centers the window there and dragging on moves it, a
 //! press on the window moves it as grabbed; the top edge drags to resize the strip, and a
 //! right-click opens its menu.
 //!
-//! Every mark spans the strip's height, so the annotations and gaps are one row of
-//! pixels, a texture made only when they change (the annotations, the legend, the width,
-//! the theme); a frame draws it and the window's rectangle.
+//! Every mark spans the strip's height, so the annotations are one row of pixels, a
+//! texture made only when they change (the annotations, the legend, the width, the theme);
+//! a frame draws it and the window's rectangle.
 
 use std::ops::Range;
 
@@ -14,7 +13,7 @@ use eframe::egui::{
     self, Color32, ColorImage, CursorIcon, Rangef, Rect, Sense, Stroke, StrokeKind, TextureHandle,
     TextureOptions, Ui, pos2,
 };
-use kymo_core::{AnnotationStore, Recording};
+use kymo_core::AnnotationStore;
 
 use crate::annotations::{self, AnnotationColor, Legend, Marks};
 use crate::ui::palette::annotation_color;
@@ -38,8 +37,6 @@ const BAND_ALPHA: f32 = 0.5;
 const SHADE_ALPHA: f32 = 0.55;
 const SHADE_HOT_ALPHA: f32 = 0.45;
 const WINDOW_STROKE: f32 = 1.5;
-/// Opacity of the grid's color over stretches without samples.
-const GAP_ALPHA: f32 = 0.5;
 /// How near an annotation's mark the pointer must be, in points, for the status line to
 /// name it.
 const POINTER_SLACK: f32 = 2.0;
@@ -106,56 +103,13 @@ pub fn start_for(t: f64, grab: f64, span: f64, duration: f64) -> f64 {
     start.clamp(0.0, (duration - span).max(0.0))
 }
 
-/// The pixel columns of a strip `width_px` physical pixels wide over a recording `duration`
-/// seconds long that hold no sample of any grid, as runs from left to right. A column with
-/// any sample in it is not one, so gaps narrower than a column don't show.
-pub fn gaps(recording: &Recording, duration: f64, width_px: u32) -> Vec<Range<u32>> {
-    let width = f64::from(width_px);
-    let mut covered = vec![false; width_px as usize];
-    for grid in recording.grids() {
-        let period = if grid.rate() > 0.0 {
-            1.0 / grid.rate()
-        } else {
-            0.0
-        };
-        for segment in grid.segments() {
-            if segment.is_empty() {
-                continue;
-            }
-            let first = grid.time_of(segment.start);
-            let last = grid.time_of(segment.end - 1) + period;
-            let x0 = x_at(first, duration, width).floor().max(0.0);
-            if x0 >= width {
-                continue;
-            }
-            // A sample takes at least its column.
-            let x1 = x_at(last, duration, width).ceil().min(width).max(x0 + 1.0);
-            for c in &mut covered[x0 as usize..x1 as usize] {
-                *c = true;
-            }
-        }
-    }
-    let mut runs: Vec<Range<u32>> = Vec::new();
-    for (column, _) in covered.iter().enumerate().filter(|(_, c)| !**c) {
-        let column = column as u32;
-        match runs.last_mut() {
-            Some(run) if run.end == column => run.end += 1,
-            _ => runs.push(column..column + 1),
-        }
-    }
-    runs
-}
-
 /// The strip's pixel columns, `width_px` of them, back to front: the `background`, the
-/// `gap` color over `gaps`, the annotations' bands (translucent, in their order) and lines
-/// (solid) in their colors from `color_of`. Every mark spans the strip's height, so this
-/// row is all it shows of them.
+/// annotations' bands (translucent, in their order) and lines (solid) in their colors from
+/// `color_of`. Every mark spans the strip's height, so this row is all it shows of them.
 pub fn pixels(
     marks: &Marks,
-    gaps: &[Range<u32>],
     width_px: u32,
     background: Color32,
-    gap: Color32,
     color_of: impl Fn(AnnotationColor) -> Color32,
 ) -> Vec<Color32> {
     let mut row = vec![background; width_px as usize];
@@ -165,9 +119,6 @@ pub fn pixels(
             *pixel = pixel.blend(color);
         }
     };
-    for columns in gaps {
-        paint(columns, gap);
-    }
     for band in &marks.bands {
         paint(
             &band.columns,
@@ -201,12 +152,9 @@ pub struct Minimap {
     /// revisions, the duration and the width in physical pixels they were made for.
     marks: Marks,
     marks_for: Option<(u64, u64, u64, u64, u32)>,
-    /// The columns without samples, and the width they were found for.
-    gaps: Vec<Range<u32>>,
-    gaps_for: Option<u32>,
-    /// The row of pixels made of both, and the theme's colors it was made in.
+    /// The row of pixels made of them, and the theme it was made in.
     texture: Option<TextureHandle>,
-    texture_for: Option<(bool, Color32, Color32)>,
+    texture_for: Option<(bool, Color32)>,
     /// While a press on the strip holds the window: the time it holds, after the window's
     /// start, in seconds.
     grab: Option<f64>,
@@ -214,7 +162,6 @@ pub struct Minimap {
 
 /// What the minimap shows and acts on.
 pub struct Input<'a> {
-    pub recording: &'a Recording,
     pub store: &'a AnnotationStore,
     pub legend: &'a Legend,
     /// The recording's length and the window's times, in seconds.
@@ -318,7 +265,7 @@ impl Minimap {
         shown
     }
 
-    /// Makes the marks, gaps and their texture again where what they show changed.
+    /// Makes the marks and their texture again where what they show changed.
     fn update(&mut self, ui: &Ui, input: &Input<'_>, width_px: u32) {
         let mut changed = false;
         let marks_for = (
@@ -334,26 +281,15 @@ impl Minimap {
             self.marks_for = Some(marks_for);
             changed = true;
         }
-        if self.gaps_for != Some(width_px) {
-            self.gaps = gaps(input.recording, input.duration, width_px);
-            self.gaps_for = Some(width_px);
-            changed = true;
-        }
         let visuals = ui.visuals();
         let background = visuals.extreme_bg_color;
-        let gap = visuals
-            .widgets
-            .noninteractive
-            .bg_stroke
-            .color
-            .gamma_multiply(GAP_ALPHA);
-        let texture_for = (visuals.dark_mode, background, gap);
+        let texture_for = (visuals.dark_mode, background);
         if self.texture_for != Some(texture_for) {
             self.texture_for = Some(texture_for);
             changed = true;
         }
         if changed || self.texture.is_none() {
-            let row = pixels(&self.marks, &self.gaps, width_px, background, gap, |c| {
+            let row = pixels(&self.marks, width_px, background, |c| {
                 annotation_color(c, visuals)
             });
             let image = ColorImage::new([width_px as usize, 1], row);
