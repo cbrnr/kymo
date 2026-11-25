@@ -114,7 +114,7 @@ Uninstall Kymo from **Settings → Apps**. The uninstaller asks whether to also 
 
 ### Linux
 
-On Arch Linux and its derivatives, install the [`kymo`](https://aur.archlinux.org/packages/kymo) package from the AUR, for example with `yay -S kymo` or `paru -S kymo`.
+On Arch Linux and its derivatives, install the [`kymo-bin`](https://aur.archlinux.org/packages/kymo-bin) package from the AUR, which installs the prebuilt binary of a release (x86_64 and aarch64), for example with `yay -S kymo-bin` or `paru -S kymo-bin`. The [`kymo`](https://aur.archlinux.org/packages/kymo) package builds it from source instead.
 
 On NixOS or with Nix, there is an unofficial [Nix flake](https://github.com/DerAndereJohannes/kymo-nix).
 
