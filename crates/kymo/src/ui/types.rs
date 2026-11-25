@@ -324,12 +324,12 @@ fn new_type(ui: &mut Ui) -> Option<ChannelKind> {
 
 /// A "⋯" button `height` high at the end of a type's row, named "Options for {label}" for
 /// screen readers: gray, or in the text color while `kind`'s DC removal or scaling differs
-/// from its start. A click opens a menu with the type's name, Remove DC and Scale Each
-/// Channel as checkable items (neither for stim channels), Select (its `channels`
-/// channels, in the channel list), Change Type To (see
-/// [`change_type_menu`]; its channels are `targets`), Reset, enabled while anything differs
-/// from the type's start (its color too; a custom type keeps its entry), and All Types…,
-/// which asks for the Channel Types window.
+/// from its start. A click opens a menu (no title, as it opens at the type's row): Remove DC
+/// and Scale Each Channel as checkable items (neither for stim channels), Select (its
+/// `channels` channels, in the channel list), Change Type To (see [`change_type_menu`]; its
+/// channels are `targets`), Reset, enabled while anything differs from the type's start (its
+/// color too; a custom type keeps its entry), and All Types…, which asks for the Channel
+/// Types window.
 pub fn type_menu(
     ui: &mut Ui,
     kind: &ChannelKind,
@@ -355,7 +355,6 @@ pub fn type_menu(
     let mut choice = MenuChoice::default();
     Popup::menu(&response).show(|ui| {
         contained(ui, |ui| {
-            ui.label(RichText::new(name).strong());
             if !kind.is_stim() {
                 let (remove_dc, own_scale) = (types.remove_dc(kind), types.own_scale(kind));
                 let item = check_item(ui, true, remove_dc, false, REMOVE_DC, None);
@@ -368,8 +367,8 @@ pub fn type_menu(
                 if item.clicked() {
                     types.set_own_scale(kind, !own_scale);
                 }
+                ui.separator();
             }
-            ui.separator();
             let select = format!("Select {channels} {name} Channel{}", plural(channels));
             if ui.button(select).clicked() {
                 choice.select = true;

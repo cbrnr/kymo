@@ -2439,7 +2439,12 @@ fn channels_are_selected_all_bad_or_by_type() {
     perform(&mut harness, Action::SelectBadChannels);
     assert_eq!(selected(&harness), [1, 3]);
 
+    // A type's menu has no title, as it opens at the type's row.
+    let named =
+        |h: &Harness<'_, KymoApp>| h.query_all_by_role_and_label(Role::Label, "EEG").count();
+    let before = named(&harness);
     type_options(&mut harness, "EEG channels");
+    assert_eq!(named(&harness), before);
     menu_path(&mut harness, &["Select 2 EEG Channels"]);
     assert_eq!(selected(&harness), [0, 1]);
 }
