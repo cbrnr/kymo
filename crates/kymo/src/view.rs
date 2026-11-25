@@ -276,6 +276,11 @@ impl ViewState {
         &self.order
     }
 
+    /// The channels of all rows, on screen or not, top to bottom: the shown channels.
+    pub fn row_channels(&self) -> &[ChannelId] {
+        &self.rows_order
+    }
+
     /// The channels on screen, top to bottom.
     pub fn visible_channels(&self) -> &[ChannelId] {
         &self.rows_order[self.visible_rows()]

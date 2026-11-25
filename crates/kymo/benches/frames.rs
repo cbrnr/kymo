@@ -40,7 +40,7 @@
 //! then the benchmark started again, so the build doesn't count towards peak memory); with
 //! `--fresh` the pyramid builds into an empty directory during the run, as on a first open.
 //! Traces are drawn in whole pixels, as by default, or anti-aliased with `--antialias`.
-//! With `--minimap`, the minimap is shown below the traces throughout.
+//! With `--minimap`, the minimap is shown below the traces throughout, with signals.
 
 // A measuring tool: panicking on a broken input is the point.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -146,7 +146,14 @@ fn main() {
         "anti-aliasing: {}",
         if settings.antialias { "on" } else { "off" }
     );
-    println!("minimap: {}", if settings.minimap { "on" } else { "off" });
+    println!(
+        "minimap: {}",
+        if settings.minimap {
+            "on, with signals"
+        } else {
+            "off"
+        }
+    );
     report.print();
     match peak_resident_bytes() {
         Some(bytes) => println!("peak resident memory: {:.0} MB", bytes as f64 / 1e6),

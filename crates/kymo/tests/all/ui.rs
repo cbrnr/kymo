@@ -9228,6 +9228,15 @@ fn the_minimaps_menu_resets_its_height_and_hides_it() {
         minimap::DEFAULT_HEIGHT
     );
 
+    // Show Signals, on by default, turns them off and on.
+    assert!(harness.state().settings().minimap_signals);
+    for on in [false, true] {
+        secondary_click(&mut harness, rect.center());
+        harness.get_by_label(minimap::SHOW_SIGNALS).click();
+        harness.run_steps(2);
+        assert_eq!(harness.state().settings().minimap_signals, on);
+    }
+
     secondary_click(&mut harness, rect.center());
     harness.get_by_label(minimap::HIDE).click();
     harness.run_steps(2);
@@ -9239,40 +9248,315 @@ fn the_minimaps_menu_resets_its_height_and_hides_it() {
 #[test]
 fn hovering_the_minimap_names_its_time_and_annotations() {
     let file = TempFile::preset("edf+c-annotations");
+    for signals in [false, true] {
+        let settings = Settings {
+            minimap: true,
+            minimap_signals: signals,
+            minimap_height: 80.0,
+            ..options().settings
+        };
+        let mut harness = window_with(file.path(), settings);
+        ready(&mut harness);
+        let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+        let ppp = harness.ctx.pixels_per_point();
+        let width_px = (rect.width() * ppp).round() as u32;
+        for (fx, fy) in [(0.1, 0.2), (0.37, 0.5), (0.8, 0.9)] {
+            let p = egui::pos2(
+                rect.left() + rect.width() * fx,
+                rect.top() + rect.height() * fy,
+            );
+            hover(&mut harness, p);
+            harness.step();
+            let viewer = viewer(&harness);
+            let duration = viewer.view().duration();
+            let time = f64::from((p.x - rect.left()) / rect.width()) * duration;
+            // With signals, the channel of the row under the pointer, named without a
+            // reading.
+            let rows = viewer.view().row_channels();
+            let row = ((p.y - rect.top()) / rect.height() * rows.len() as f32) as usize;
+            let channel = signals.then(|| rows[row]);
+            let under = annotations::overview_under(
+                &viewer.document().annotations,
+                viewer.legend(),
+                duration,
+                width_px,
+                f64::from((p.x - rect.left()) * ppp),
+                (2.0 * ppp).round() as u32,
+                channel,
+            );
+            assert!(!under.is_empty());
+            let rec = &viewer.document().recording;
+            let want = format!(
+                "{} · {}",
+                status::pointer_text(
+                    time,
+                    status::time_decimals(rec.sfreq()),
+                    Clock::for_end(duration),
+                    channel.map(|c| (rec.channel(c).name.as_str(), None)),
+                ),
+                status::annotations_text(under.iter().map(|a| a.data.description.as_str())),
+            );
+            assert_eq!(viewer.status().left, want, "signals {signals}");
+        }
+    }
+}
+
+/// A window on `path` with the minimap shown `height` points tall, signals or not, its
+/// spreads read and drawn; screenshots render on the shared GPU.
+fn minimap_window(path: &Path, height: f32, signals: bool) -> Harness<'static, KymoApp> {
+    let mut harness = screenshot_window(path);
+    ready(&mut harness);
+    let settings = Settings {
+        minimap: true,
+        minimap_height: height,
+        minimap_signals: signals,
+        ..harness.state().settings().clone()
+    };
+    harness.state_mut().set_settings(settings);
+    let grids = viewer(&harness).document().recording.grids().len();
+    step_until(&mut harness, "the spreads", |app| {
+        !signals || app.viewer().unwrap().minimap().spreads_read() == grids
+    });
+    harness.run_steps(2);
+    harness
+}
+
+/// The rendered pixel at `p` (in points).
+fn pixel_at(harness: &mut Harness<'_, KymoApp>, p: egui::Pos2) -> [u8; 3] {
+    let ppp = harness.ctx.pixels_per_point();
+    let image = harness.render().unwrap();
+    let [r, g, b, _] = image.get_pixel((p.x * ppp) as u32, (p.y * ppp) as u32).0;
+    [r, g, b]
+}
+
+#[test]
+fn the_minimaps_rows_show_the_signals_and_leave_gaps_empty() {
+    // 10 min of channels with 3 gaps, without the trigger channel's events.
+    let file = without_triggers("edf+d-mixed");
+    let mut harness = minimap_window(file.path(), 100.0, true);
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    let (gap, present) = {
+        let viewer = viewer(&harness);
+        let rec = &viewer.document().recording;
+        let duration = rec.duration();
+        let grid = &rec.grids()[0];
+        let segments = grid.segments();
+        assert!(segments.len() > 1, "{segments:?}");
+        let gap = (grid.time_of(segments[0].end) + grid.time_of(segments[1].start)) / 2.0;
+        // Where samples are and no annotation is near, so only the signals show.
+        let near = 3.0 * duration / f64::from(rect.width());
+        let present = (0..100)
+            .map(|k| {
+                let (a, b) = (
+                    grid.time_of(segments[1].start),
+                    grid.time_of(segments[1].end),
+                );
+                a + (b - a) * (f64::from(k) + 0.5) / 100.0
+            })
+            .find(|&t| {
+                !viewer
+                    .document()
+                    .annotations
+                    .iter()
+                    .any(|a| a.data.onset - near <= t && t <= a.data.end() + near)
+            })
+            .expect("a stretch without annotations");
+        (gap / duration, present / duration)
+    };
+    let background = harness.ctx.global_style().visuals.extreme_bg_color;
+    let x = |f: f64| rect.left() + rect.width() * f as f32;
+    for fy in [0.1, 0.5, 0.9] {
+        let y = rect.top() + rect.height() * fy;
+        let [r, g, b] = pixel_at(&mut harness, egui::pos2(x(gap), y));
+        let near = |a: u8, b: u8| a.abs_diff(b) <= 1;
+        assert!(
+            near(r, background.r()) && near(g, background.g()) && near(b, background.b()),
+            "gap at {fy}: {:?}",
+            [r, g, b]
+        );
+        // Gray, brighter than the background.
+        let [r, g, b] = pixel_at(&mut harness, egui::pos2(x(present), y));
+        assert!(
+            r > background.r() + 3 && r.max(g).max(b) - r.min(g).min(b) <= 2,
+            "signal at {fy}: {:?}",
+            [r, g, b]
+        );
+    }
+}
+
+#[test]
+fn the_minimap_draws_channel_annotations_in_their_rows() {
+    // 12 channels, annotations on some; without the stim events, which come every half
+    // second.
+    let file = without_triggers("fif-float32-meg");
+    let mut harness = minimap_window(file.path(), 160.0, true);
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    let saturation = |[r, g, b]: [u8; 3]| r.max(g).max(b) - r.min(g).min(b);
+    let (x, inside, outside) = {
+        let viewer = viewer(&harness);
+        let view = viewer.view();
+        let rows = view.row_count() as f32;
+        let duration = view.duration();
+        let store = &viewer.document().annotations;
+        let at =
+            |t: f64, a: &kymo_core::Annotation| a.data.onset - 0.5 <= t && t <= a.data.end() + 0.5;
+        let all = |t: f64| {
+            store
+                .iter()
+                .any(|a| annotations::spans_all(&a.data) && at(t, a))
+        };
+        let a = store
+            .iter()
+            .find(|a| {
+                let t = a.data.onset + a.data.duration / 2.0;
+                !annotations::spans_all(&a.data) && !all(t)
+            })
+            .expect("a channel annotation clear of the others");
+        let t = a.data.onset + a.data.duration / 2.0;
+        let row = view.row_of(a.data.channels[0]).unwrap();
+        // A row no annotation of channels covers there.
+        let other = (0..view.row_count())
+            .find(|&r| {
+                let c = view.row_channels()[r];
+                !store
+                    .iter()
+                    .any(|a| a.data.channels.contains(&c) && at(t, a))
+            })
+            .unwrap();
+        let y = |r: usize| rect.top() + (r as f32 + 0.5) / rows * rect.height();
+        let x = rect.left() + (t / duration) as f32 * rect.width();
+        let name = viewer
+            .document()
+            .recording
+            .channel(a.data.channels[0])
+            .name
+            .clone();
+        (egui::pos2(x, y(row)), egui::pos2(x, y(other)), name)
+    };
+    let (inside, outside, name) = (x, inside, outside);
+    let color = pixel_at(&mut harness, inside);
+    assert!(saturation(color) > 15, "{color:?}");
+    let color = pixel_at(&mut harness, outside);
+    assert!(saturation(color) <= 2, "{color:?}");
+
+    // Hidden, the channel takes its annotation's marks along: none lies where its row was.
+    click_in_list(
+        &mut harness,
+        egui::accesskit::Role::CheckBox,
+        &format!("Show {name}"),
+    );
+    harness.run_steps(2);
+    let color = pixel_at(&mut harness, inside);
+    assert!(saturation(color) <= 2, "{color:?}");
+}
+
+#[test]
+fn settings_show_or_hide_the_minimaps_signals() {
+    let file = TempFile::preset("bdf+c-small");
     let mut harness = window(file.path());
     ready(&mut harness);
-    show_minimap(&mut harness);
+    let ctx = harness.ctx.clone();
+    harness.state_mut().perform(&ctx, Action::Settings);
+    harness.run_steps(3);
+    assert!(harness.state().settings().minimap_signals);
+    harness
+        .get_by_role_and_label(egui::accesskit::Role::CheckBox, minimap::SHOW_SIGNALS)
+        .click();
+    harness.run_steps(2);
+    assert!(!harness.state().settings().minimap_signals);
+    // Restore Defaults shows them again, as it is a setting of its own.
+    harness.get_by_label("Restore Defaults").click();
+    harness.run_steps(2);
+    assert!(harness.state().settings().minimap_signals);
+}
+
+#[test]
+fn the_minimap_moves_the_rows_with_the_window() {
+    // 32 channels.
+    let file = TempFile::preset("edf+c-annotations");
+    let settings = Settings {
+        minimap: true,
+        minimap_height: 128.0,
+        ..options().settings
+    };
+    let mut harness = window_with(file.path(), settings);
+    ready(&mut harness);
     let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
-    let ppp = harness.ctx.pixels_per_point();
-    let width_px = (rect.width() * ppp).round() as u32;
-    for fraction in [0.1, 0.37, 0.8] {
-        let p = egui::pos2(rect.left() + rect.width() * fraction, rect.center().y);
-        hover(&mut harness, p);
+    let view = |h: &Harness<'_, KymoApp>| viewer(h).view().clone();
+    let (count, rows) = {
+        let v = view(&harness);
+        (v.row_count() as f64, v.rows() as f64)
+    };
+    assert!(rows < count, "{rows} of {count} rows on screen");
+    let row_of = |y: f32| f64::from((y - rect.top()) / rect.height()) * count;
+    let x = rect.center().x;
+
+    // A click centers the window on its rows too, as far as they go.
+    let y = rect.top() + rect.height() * 0.6;
+    click(&mut harness, egui::pos2(x, y));
+    let top = view(&harness).top();
+    assert!((top - (row_of(y) - rows / 2.0)).abs() < 1e-3, "{top}");
+    click(&mut harness, egui::pos2(x, rect.bottom() - 1.0));
+    assert_eq!(view(&harness).top(), count - rows);
+
+    // Dragging the window moves its rows as grabbed.
+    let from = egui::pos2(
+        x,
+        rect.top() + rect.height() * ((count - rows / 2.0) / count) as f32,
+    );
+    let to = from - egui::vec2(0.0, 40.0);
+    drag(&mut harness, from, to);
+    let want = count - rows + row_of(to.y) - row_of(from.y);
+    let top = view(&harness).top();
+    assert!((top - want).abs() < 1e-3, "{top}, want {want}");
+
+    // Without signals, a click moves only the time.
+    secondary_click(&mut harness, rect.center());
+    harness.get_by_label(minimap::SHOW_SIGNALS).click();
+    harness.run_steps(2);
+    assert!(!harness.state().settings().minimap_signals);
+    let before = view(&harness).top();
+    click(&mut harness, egui::pos2(x, rect.top() + 4.0));
+    assert_eq!(view(&harness).top(), before);
+}
+
+#[test]
+fn hiding_a_channel_drops_its_minimap_row() {
+    let file = TempFile::preset("edf+c-kinds");
+    let settings = Settings {
+        minimap: true,
+        minimap_height: 120.0,
+        ..options().settings
+    };
+    let mut harness = window_with(file.path(), settings);
+    ready(&mut harness);
+    let rect = viewer(&harness).layout().unwrap().minimap.unwrap();
+    let named = |harness: &mut Harness<'_, KymoApp>, row: usize| {
+        let count = viewer(harness).view().row_count() as f32;
+        let y = rect.top() + (row as f32 + 0.5) / count * rect.height();
+        hover(harness, egui::pos2(rect.center().x, y));
         harness.step();
-        let viewer = viewer(&harness);
-        let duration = viewer.view().duration();
-        let time = f64::from((p.x - rect.left()) / rect.width()) * duration;
-        let under = annotations::overview_under(
-            &viewer.document().annotations,
-            viewer.legend(),
-            duration,
-            width_px,
-            f64::from((p.x - rect.left()) * ppp),
-            (2.0 * ppp).round() as u32,
+        let rows = viewer(harness).view().row_channels().to_vec();
+        let rec = &viewer(harness).document().recording;
+        let name = rec.channel(rows[row]).name.clone();
+        assert!(
+            viewer(harness)
+                .status()
+                .left
+                .contains(&format!(" · {name}")),
+            "{} names {name}",
+            viewer(harness).status().left
         );
-        assert!(!under.is_empty());
-        let want = format!(
-            "{} · {}",
-            status::pointer_text(
-                time,
-                status::time_decimals(viewer.document().recording.sfreq()),
-                Clock::for_end(duration),
-                None,
-            ),
-            status::annotations_text(under.iter().map(|a| a.data.description.as_str())),
-        );
-        assert_eq!(viewer.status().left, want);
-    }
+        name
+    };
+    let first = named(&mut harness, 0);
+    let second = named(&mut harness, 1);
+    click_in_list(
+        &mut harness,
+        egui::accesskit::Role::CheckBox,
+        &format!("Show {first}"),
+    );
+    assert_eq!(named(&mut harness, 0), second);
 }
 
 #[test]

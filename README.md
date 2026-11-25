@@ -60,6 +60,7 @@ The following sections show keyboard shortcuts for macOS. On Windows and Linux, 
 - Move through the channels and choose how many to display at once.
 - Hover over a trace to see its value at that point.
 - Open recordings from the file manager (**Open With**, or a double-click once Kymo is the default app for a file type), the command line, the **File** menu, the recent files list, or by dragging them onto the window (currently not supported on Linux using Wayland). Opening a recording while another one is open replaces it, after asking about unsaved annotations.
+- **View → Show Minimap** adds a strip below the traces, in place of the time scrollbar, that shows the whole recording: its annotations, a row per channel that shows where the signal is large (bright), flat (dark), or missing (empty), and the part on screen. Click or drag it to move there, drag its top edge to make it taller, and right-click it to hide the channel rows (also in **Settings → Minimap**).
 - **File → Recording Info** shows the recording's header fields, start time, duration, sampling rates, streams, and channel groups.
 
 ### Channels and scaling

@@ -386,22 +386,43 @@ pub fn marks(
 
 /// The marks for all of `store`'s annotations over a recording `duration` seconds long, on
 /// a strip `width_px` physical pixels wide (the minimap), of the descriptions `legend`
-/// shows: as [`marks`] makes them, but each spanning the strip's height, and without
-/// labels.
+/// shows: as [`marks`] makes them, but over the whole recording and without labels. Each
+/// spans the strip's height, unless the strip has `rows`, the view's, all of them: then an
+/// annotation tied to channels spans the rows of those shown, and draws nothing if none is.
 pub fn overview_marks(
     store: &AnnotationStore,
     legend: &Legend,
     duration: f64,
     width_px: u32,
+    rows: Option<&ViewState>,
 ) -> Marks {
     let mut merger = Merger::default();
     if width_px == 0 {
         return merger.marks;
     }
+    let mut spans = Vec::new();
     for a in store.iter() {
-        if let Some(entry) = legend.of(&a.data).filter(|e| e.shown) {
-            let (columns, line) = columns(0.0, duration, &a.data, width_px);
-            merger.add(entry.color, Span::All, &columns, line);
+        let Some(entry) = legend.of(&a.data).filter(|e| e.shown) else {
+            continue;
+        };
+        spans.clear();
+        match rows {
+            Some(view) if !spans_all(&a.data) => {
+                spans.extend(
+                    a.data
+                        .channels
+                        .iter()
+                        .filter_map(|&c| view.row_of(c))
+                        .map(Span::Row),
+                );
+                spans.sort();
+                spans.dedup();
+            }
+            _ => spans.push(Span::All),
+        }
+        let (columns, line) = columns(0.0, duration, &a.data, width_px);
+        for &span in &spans {
+            merger.add(entry.color, span, &columns, line);
         }
     }
     merger.finish()
@@ -489,7 +510,9 @@ pub fn under<'s>(
 
 /// The annotations under pixel column `x` of the minimap, `width_px` physical pixels wide
 /// over a recording `duration` seconds long, by onset: those of the descriptions `legend`
-/// shows whose mark is within `slack` columns of `x` (see [`overview_marks`]).
+/// shows whose mark is within `slack` columns of `x` (see [`overview_marks`]); where the
+/// minimap has rows, only those that span them all or apply to `channel`, the one under
+/// the pointer.
 pub fn overview_under<'s>(
     store: &'s AnnotationStore,
     legend: &Legend,
@@ -497,8 +520,11 @@ pub fn overview_under<'s>(
     width_px: u32,
     x: f64,
     slack: u32,
+    channel: Option<ChannelId>,
 ) -> Vec<&'s Annotation> {
-    near(store, legend, (0.0, duration), width_px, x, slack, |_| true)
+    let applies =
+        |a: &AnnotationData| channel.is_none_or(|c| spans_all(a) || a.channels.contains(&c));
+    near(store, legend, (0.0, duration), width_px, x, slack, applies)
 }
 
 /// The annotations `applies` takes whose mark is within `slack` columns of column `x`, on

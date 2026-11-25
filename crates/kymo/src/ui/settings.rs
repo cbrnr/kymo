@@ -5,6 +5,7 @@ use eframe::egui::{self, Ui};
 use crate::disk_cache::DiskCache;
 use crate::settings::{DEFAULT_WINDOW_S, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme};
 use crate::ui::fonts::SYSTEM_FONT_NAME;
+use crate::ui::minimap;
 use crate::ui::stepper::stepper;
 use crate::ui::types::CHANNEL_TYPES;
 use crate::ui::{Overlay, window_title};
@@ -48,6 +49,7 @@ pub fn settings_window(
             let max_height = ui.ctx().content_rect().height() * 0.8;
             egui::ScrollArea::vertical()
                 .max_height(max_height)
+                .min_scrolled_height(max_height)
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     egui::Grid::new("settings")
@@ -91,6 +93,10 @@ pub fn settings_window(
                     ui.checkbox(&mut settings.auto_scale_on_open, "Automatic on Opening");
                     ui.end_row();
                     hint(ui, "Fit the amplitudes to the first window of a recording.");
+                    ui.label("Minimap");
+                    ui.checkbox(&mut settings.minimap_signals, minimap::SHOW_SIGNALS);
+                    ui.end_row();
+                    hint(ui, "A coarse picture of each channel under the annotations.");
                     budget_row(
                         ui,
                         "Tile Cache",
@@ -153,12 +159,13 @@ pub fn settings_window(
 const GAP: f32 = 12.0;
 
 /// The settings' row labels, in the first column.
-const LABELS: [&str; 9] = [
+const LABELS: [&str; 10] = [
     "Theme",
     "Font",
     "Channel Types",
     "Default Window",
     "Scale",
+    "Minimap",
     "Tile Cache",
     "GPU Memory",
     "Disk Cache",

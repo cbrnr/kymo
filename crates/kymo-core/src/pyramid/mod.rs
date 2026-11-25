@@ -19,6 +19,7 @@
 mod build;
 mod mean;
 mod sidecar;
+mod spread;
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -27,6 +28,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 pub use build::PyramidBuilder;
 pub use sidecar::{Sidecar, SidecarError};
+pub use spread::Spread;
 
 use crate::stim::{Change, StimChanges};
 use crate::tile::{
@@ -159,7 +161,8 @@ impl PyramidStorage for MemStorage {
     }
 }
 
-/// The pyramid of one grid of a recording.
+/// The pyramid of one grid of a recording; a clone reads the same storage.
+#[derive(Clone)]
 pub struct Pyramid {
     id: GridId,
     grid: Grid,
