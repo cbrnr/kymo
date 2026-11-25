@@ -1529,12 +1529,12 @@ fn channel_list(
     all_types
 }
 
-/// The selection bar below the channel list, two rows high whatever it shows: with nothing
-/// selected, how to select (with `platform`'s keys); with channels selected, how many, then
-/// what acts on them all: Hide (Show while all are hidden), Mark (Mark as
-/// Bad for those that are good, Mark as Good for those that are bad, saying how many each
-/// marks), Type (Change Type To's items) and Scale (up and down, with their shortcuts and
-/// the scroll gesture, and Scale With Type).
+/// The selection bar below the channel list: with nothing selected, a row on how to select
+/// (with `platform`'s keys); with channels selected, how many, then what acts on them all:
+/// Hide (Show while all are hidden), Mark (Mark as Bad for those that are good, Mark as Good
+/// for those that are bad, saying how many each marks), Type (Change Type To's items) and
+/// Scale (up and down, with their shortcuts and the scroll gesture, and Scale With Type),
+/// wrapped where the sidebar is narrow.
 fn selection_bar(
     ui: &mut Ui,
     (view, marks): (&mut ViewState, &mut Marks),
@@ -1542,7 +1542,6 @@ fn selection_bar(
     platform: Platform,
 ) {
     let row_height = ui.spacing().interact_size.y;
-    ui.set_min_height(2.0 * row_height + ui.spacing().item_spacing.y);
     let selected = view.selected();
     if selected.is_empty() {
         let hint = match platform {
@@ -1562,7 +1561,8 @@ fn selection_bar(
     let recording_kinds = view.kinds();
     let (mut mark, mut picked, mut scale, mut rejoin) = (None, None, None, false);
     let any_shown = selected.iter().any(|&c| view.is_shown(c));
-    ui.horizontal(|ui| {
+    // Wrapped, so a narrow sidebar shows them all.
+    ui.horizontal_wrapped(|ui| {
         ui.set_min_height(row_height);
         let hide = if any_shown { "Hide" } else { "Show" };
         if ui.button(hide).clicked() {
