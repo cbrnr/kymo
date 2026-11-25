@@ -2316,7 +2316,8 @@ fn a_channels_menu_shows_on_its_row_hovered() {
     assert!(contrast(&mut harness, away) < 5);
 }
 
-/// "Bad" shows on a bad channel's row alone, hovered or not, and isn't a button. The
+/// "Bad" shows on a bad channel's row alone, hovered or not, and isn't a button; the name
+/// keeps its color. The
 /// selection bar marks the selected channels bad or good, saying how many it marks; a
 /// channel's menu marks it alone.
 #[test]
@@ -2331,6 +2332,25 @@ fn bad_shows_on_bad_rows_and_menus_mark_bad() {
         harness.run_steps(2);
         assert!(harness.query_by_label("A2 bad").is_none());
     }
+    // The brightest pixel of EOG L's name in the list.
+    let name = |h: &mut Harness<'_, KymoApp>| {
+        let r = h.get_by_role_and_label(Role::Label, "EOG L").rect();
+        let ppp = h.ctx.pixels_per_point();
+        let image = h.render().unwrap();
+        let (x0, x1) = ((r.left() * ppp) as u32, (r.right() * ppp) as u32);
+        let (y0, y1) = ((r.top() * ppp) as u32, (r.bottom() * ppp) as u32);
+        (x0..x1)
+            .flat_map(|x| (y0..y1).map(move |y| (x, y)))
+            .map(|(x, y)| image.get_pixel(x, y).0)
+            .max_by_key(|p| p.iter().map(|&c| u32::from(c)).sum::<u32>())
+            .unwrap()
+    };
+    // A bad channel's name keeps its color: "Bad" says it.
+    let good = name(&mut harness);
+    mark_in_list(&mut harness, "EOG L", true);
+    hover(&mut harness, egui::pos2(900.0, 650.0));
+    assert_eq!(name(&mut harness), good);
+    mark_in_list(&mut harness, "EOG L", false);
     mark_in_list(&mut harness, "A2", true);
     let label = harness.get_by_label("A2 bad");
     assert_eq!(label.accesskit_node().role(), Role::Label);

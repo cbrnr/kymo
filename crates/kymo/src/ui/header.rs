@@ -16,7 +16,7 @@ use crate::types::TypeSettings;
 use crate::ui::axis::{Clock, format_time};
 use crate::ui::color::{Choice, swatch};
 use crate::ui::elide_middle;
-use crate::ui::palette::{annotation_color, bad_color, type_color};
+use crate::ui::palette::{annotation_color, type_color};
 use crate::ui::readout::display_unit;
 use crate::ui::types::{
     Dots, Retype, SCALE_WITH_TYPE, Targets, change_type_items, channel_menu, mark_label,
@@ -1353,13 +1353,12 @@ fn channel_list(
                     view.set_shown(id, shown);
                 }
 
+                // A bad channel's name isn't grayed as its trace is: "Bad" after it says so.
                 let bad = view.is_bad(id);
-                let color = if bad {
-                    bad_color(ui.visuals())
-                } else if !shown {
-                    ui.visuals().weak_text_color()
-                } else {
+                let color = if shown {
                     type_color(view.kind_of(id), types, ui.visuals())
+                } else {
+                    ui.visuals().weak_text_color()
                 };
                 let text = short_name.as_deref().unwrap_or(listed);
                 let label = Label::new(RichText::new(text).color(color))
@@ -1400,7 +1399,8 @@ fn channel_list(
                 // "Bad" on a bad channel's row, as text, not a button (a click on the name
                 // beside the traces marks it, as does its menu); its room is taken on every
                 // row, so the columns after it line up.
-                let text = RichText::new("Bad").small();
+                // In the name's color, no more prominent than the name.
+                let text = RichText::new("Bad").small().color(color);
                 let width = WidgetText::from(text.clone())
                     .into_galley(
                         ui,

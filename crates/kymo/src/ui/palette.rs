@@ -56,7 +56,8 @@ pub fn trace_color(kind: &ChannelKind, visuals: &Visuals) -> Color32 {
 /// before Kymo set its own (8:1 against white, 5.9:1 against the dark theme's trace area).
 pub const GRAY_TRACES: (u8, u8) = (80, 140);
 
-/// The color of bad channels' traces and names, whatever their type: [`GRAY_TRACES`] at
+/// The color of bad channels' traces and their names beside them (not in the sidebar,
+/// which says "Bad"), whatever their type: [`GRAY_TRACES`] at
 /// 36 % opacity, faded well behind the traces of every type.
 pub fn bad_color(visuals: &Visuals) -> Color32 {
     let (light, dark) = GRAY_TRACES;
