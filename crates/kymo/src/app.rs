@@ -467,11 +467,12 @@ impl KymoApp {
             Later,
         }
         let mut answer = None;
-        let modal = egui::Modal::new(egui::Id::unique("kymo update"))
-            .frame(theme::modal_frame(ctx))
-            .show(ctx, |ui| {
-                ui.set_max_width(420.0);
-                ui.heading("Update Available");
+        let modal = theme::modal(
+            ctx,
+            egui::Id::unique("kymo update"),
+            "Update Available",
+            420.0,
+            |ui| {
                 ui.label(format!(
                     "Kymo {} is available; you have {}. Download opens its page on GitHub.",
                     release.version,
@@ -489,7 +490,8 @@ impl KymoApp {
                         answer = Some(Answer::Later);
                     }
                 });
-            });
+            },
+        );
         if answer.is_none() && modal.should_close() {
             answer = Some(Answer::Later);
         }
@@ -1294,11 +1296,13 @@ impl KymoApp {
             Cancel,
         }
         let mut answer = None;
-        let modal = egui::Modal::new(egui::Id::unique("kymo unsaved changes"))
-            .frame(theme::modal_frame(ctx))
-            .show(ctx, |ui| {
-                ui.set_max_width(360.0);
-                ui.heading(format!("Save the changes to the annotations of {name}?"));
+        let modal = theme::modal(
+            ctx,
+            egui::Id::unique("kymo unsaved changes"),
+            "Unsaved Changes",
+            360.0,
+            |ui| {
+                ui.label(format!("Save the changes to the annotations of {name}?"));
                 ui.label("They are lost if you don't save them.");
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -1312,7 +1316,8 @@ impl KymoApp {
                         answer = Some(Answer::Cancel);
                     }
                 });
-            });
+            },
+        );
         if answer.is_none() && modal.should_close() {
             answer = Some(Answer::Cancel);
         }
@@ -1336,15 +1341,11 @@ impl KymoApp {
             return;
         };
         let mut ok = false;
-        let modal = egui::Modal::new(egui::Id::unique("kymo notice"))
-            .frame(theme::modal_frame(ctx))
-            .show(ctx, |ui| {
-                ui.set_max_width(420.0);
-                ui.heading(title.as_str());
-                ui.label(text.as_str());
-                ui.add_space(8.0);
-                ok = ui.button("OK").clicked();
-            });
+        let modal = theme::modal(ctx, egui::Id::unique("kymo notice"), title, 420.0, |ui| {
+            ui.label(text.as_str());
+            ui.add_space(8.0);
+            ok = ui.button("OK").clicked();
+        });
         if ok || modal.should_close() {
             self.notice = None;
         }

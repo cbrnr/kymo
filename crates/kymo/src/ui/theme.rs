@@ -29,9 +29,38 @@ pub fn title_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::window(&ctx.global_style()).inner_margin(TITLE_MARGIN)
 }
 
-/// The frame of a modal dialog: a window's, so that it has the same padding.
-pub fn modal_frame(ctx: &egui::Context) -> egui::Frame {
-    egui::Frame::window(&ctx.global_style())
+/// A modal dialog: a window with a title bar (but no close button, its buttons answer it)
+/// over a backdrop, `width` wide inside its [`WINDOW_MARGIN`]. It looks as the windows do:
+/// the title bar keeps [`TITLE_MARGIN`] and a line under it, the content gets the window's
+/// padding.
+pub fn modal<T>(
+    ctx: &egui::Context,
+    id: egui::Id,
+    title: &str,
+    width: f32,
+    add_contents: impl FnOnce(&mut egui::Ui) -> T,
+) -> egui::ModalResponse<T> {
+    let style = ctx.global_style();
+    // The margins are applied below, so the title bar can reach the window's edge.
+    let frame = egui::Frame::window(&style).inner_margin(0);
+    let margin = WINDOW_MARGIN;
+    egui::Modal::new(id).frame(frame).show(ctx, |ui| {
+        ui.set_width(width + f32::from(margin.left) + f32::from(margin.right));
+        ui.spacing_mut().item_spacing.y = 0.0;
+        let bar = egui::Frame::NONE.inner_margin(TITLE_MARGIN).show(ui, |ui| {
+            ui.vertical_centered(|ui| ui.label(super::window_title(title)));
+        });
+        let y = bar.response.rect.bottom();
+        let x = bar.response.rect.x_range();
+        ui.painter().hline(x, y, style.visuals.window_stroke());
+        egui::Frame::NONE
+            .inner_margin(margin)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = style.spacing.item_spacing;
+                add_contents(ui)
+            })
+            .inner
+    })
 }
 
 /// Sets the light and the dark look on `ctx`, the selection in `accent` (the system's, or
