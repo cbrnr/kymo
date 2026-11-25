@@ -2438,25 +2438,27 @@ fn channels_are_selected_all_bad_or_by_type() {
     assert_eq!(selected(&harness), [0, 1]);
 }
 
-/// The selection bar is one row while it only shows how to select; with a selection, its
-/// buttons wrap in a narrow sidebar rather than going past its edge.
+/// The selection bar shows only while channels are selected; its buttons stay within a
+/// narrow sidebar, wrapping if they must.
 #[test]
-fn the_selection_bar_fits_the_sidebar() {
+fn the_selection_bar_shows_with_a_selection() {
     use egui::accesskit::Role;
     let file = typed_preset();
     let mut harness = window(file.path());
     ready(&mut harness);
-    let hint = harness.get_by_label_contains("to select.").rect();
-    let row = harness.get_by_label("Show A1").rect().height();
-    assert!(hint.height() < 1.5 * row, "{hint:?}");
+    assert!(harness.query_by_label_contains("selected").is_none());
+    assert!(harness.query_by_label("Scale").is_none());
     // The narrowest sidebar.
     sidebar_to(&mut harness, 0.0);
     click_in_list(&mut harness, Role::Label, "A1");
+    harness.get_by_label("1 channel selected");
     let edge = viewer(&harness).layout().unwrap().names.left() - 8.0;
-    let hide = harness.get_by_label("Hide").rect();
-    let scale = harness.get_by_label("Scale").rect();
-    assert!(scale.right() <= edge, "{scale:?} past {edge}");
-    assert!(scale.top() > hide.top(), "{scale:?} beside {hide:?}");
+    for button in ["Mark", "Type", "Scale"] {
+        let rect = harness.get_by_label(button).rect();
+        assert!(rect.right() <= edge, "{button}: {rect:?} past {edge}");
+    }
+    click_in_list(&mut harness, Role::Label, "A1");
+    assert!(harness.query_by_label("Scale").is_none());
 }
 
 /// Closes an open menu, as Esc does.

@@ -1209,11 +1209,13 @@ fn channel_list(
         ..ScrollStyle::solid()
     };
     let scroll = std::mem::replace(&mut ui.spacing_mut().scroll, solid);
-    // Below the rows, always there, so the list keeps its height as channels are selected.
-    egui::Panel::bottom("selection bar")
-        .resizable(false)
-        .frame(Frame::NONE.inner_margin(Margin::symmetric(0, 6)))
-        .show(ui, |ui| selection_bar(ui, (view, marks), types, platform));
+    // Below the rows, while channels are selected.
+    if !view.selected().is_empty() {
+        egui::Panel::bottom("selection bar")
+            .resizable(false)
+            .frame(Frame::NONE.inner_margin(Margin::symmetric(0, 6)))
+            .show(ui, |ui| selection_bar(ui, (view, marks), types, platform));
+    }
     let area = from_top(ui, "channels", recording, ScrollArea::vertical())
         .auto_shrink(false)
         .show_rows(ui, row_height, items.len(), |ui, rows| {
@@ -1532,12 +1534,11 @@ fn channel_list(
     all_types
 }
 
-/// The selection bar below the channel list: with nothing selected, a row on how to select
-/// (with `platform`'s keys); with channels selected, how many, then what acts on them all:
-/// Hide (Show while all are hidden), Mark (Mark as Bad for those that are good, Mark as Good
-/// for those that are bad, saying how many each marks), Type (Change Type To's items) and
-/// Scale (up and down, with their shortcuts and the scroll gesture, and Scale With Type),
-/// wrapped where the sidebar is narrow.
+/// The selection bar below the channel list, while channels are selected: how many, then
+/// what acts on them all: Mark (Mark as Bad for those that are good, Mark as Good for those
+/// that are bad, saying how many each marks), Type (Change Type To's items) and Scale (up
+/// and down, with their shortcuts on `platform` and the scroll gesture, and Scale With
+/// Type), wrapped where the sidebar is narrow.
 fn selection_bar(
     ui: &mut Ui,
     (view, marks): (&mut ViewState, &mut Marks),
@@ -1546,14 +1547,6 @@ fn selection_bar(
 ) {
     let row_height = ui.spacing().interact_size.y;
     let selected = view.selected();
-    if selected.is_empty() {
-        let hint = match platform {
-            Platform::Mac => "Click, \u{2318}-click or \u{21e7}-click to select.",
-            Platform::Windows | Platform::Linux => "Click, Ctrl-click or Shift-click to select.",
-        };
-        ui.add(Label::new(RichText::new(hint).weak()).wrap());
-        return;
-    }
     let n = selected.len();
     ui.horizontal(|ui| {
         ui.set_min_height(row_height);
@@ -1563,16 +1556,9 @@ fn selection_bar(
     let targets = targets_of(view, &selected, &kinds);
     let recording_kinds = view.kinds();
     let (mut mark, mut picked, mut scale, mut rejoin) = (None, None, None, false);
-    let any_shown = selected.iter().any(|&c| view.is_shown(c));
     // Wrapped, so a narrow sidebar shows them all.
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(row_height);
-        let hide = if any_shown { "Hide" } else { "Show" };
-        if ui.button(hide).clicked() {
-            for &c in &selected {
-                view.set_shown(c, !any_shown);
-            }
-        }
         bar_menu(ui, "Mark", |ui| {
             for (count, bad) in [(n - targets.bad, true), (targets.bad, false)] {
                 if count > 0 && ui.button(mark_label(count, n, bad)).clicked() {
