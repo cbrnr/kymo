@@ -471,7 +471,7 @@ impl KymoApp {
             ctx,
             egui::Id::unique("kymo update"),
             "Update Available",
-            420.0,
+            320.0,
             |ui| {
                 ui.label(format!(
                     "Kymo {} is available; you have {}. Download opens its page on GitHub.",
@@ -479,7 +479,8 @@ impl KymoApp {
                     update::current()
                 ));
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
+                // The default, Download, at the right edge.
+                theme::button_row(ui, |ui| {
                     if ui.button("Download").clicked() {
                         answer = Some(Answer::Download);
                     }
@@ -492,7 +493,7 @@ impl KymoApp {
                 });
             },
         );
-        if answer.is_none() && modal.should_close() {
+        if answer.is_none() && modal.close {
             answer = Some(Answer::Later);
         }
         match answer {
@@ -1300,12 +1301,12 @@ impl KymoApp {
             ctx,
             egui::Id::unique("kymo unsaved changes"),
             "Unsaved Changes",
-            360.0,
+            320.0,
             |ui| {
                 ui.label(format!("Save the changes to the annotations of {name}?"));
                 ui.label("They are lost if you don't save them.");
                 ui.add_space(8.0);
-                ui.horizontal(|ui| {
+                theme::button_row(ui, |ui| {
                     if ui.button("Save…").clicked() {
                         answer = Some(Answer::Save);
                     }
@@ -1318,7 +1319,7 @@ impl KymoApp {
                 });
             },
         );
-        if answer.is_none() && modal.should_close() {
+        if answer.is_none() && modal.close {
             answer = Some(Answer::Cancel);
         }
         let Some(answer) = answer else {
@@ -1341,12 +1342,12 @@ impl KymoApp {
             return;
         };
         let mut ok = false;
-        let modal = theme::modal(ctx, egui::Id::unique("kymo notice"), title, 420.0, |ui| {
+        let modal = theme::modal(ctx, egui::Id::unique("kymo notice"), title, 360.0, |ui| {
             ui.label(text.as_str());
             ui.add_space(8.0);
-            ok = ui.button("OK").clicked();
+            theme::button_row(ui, |ui| ok = ui.button("OK").clicked());
         });
-        if ok || modal.should_close() {
+        if ok || modal.close {
             self.notice = None;
         }
     }

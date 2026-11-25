@@ -29,30 +29,39 @@ pub fn title_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::window(&ctx.global_style()).inner_margin(TITLE_MARGIN)
 }
 
-/// A modal dialog: a window with a title bar (but no close button, its buttons answer it)
-/// over a backdrop, `width` wide inside its [`WINDOW_MARGIN`]. It looks as the windows do:
-/// the title bar keeps [`TITLE_MARGIN`] and a line under it, the content gets the window's
-/// padding.
+/// What a [`modal`] gave back.
+pub struct Modal<T> {
+    /// What the contents returned.
+    pub inner: T,
+    /// Whether the dialog was dismissed: its close button, Esc or a click beside it.
+    pub close: bool,
+}
+
+/// A modal dialog: a window with a title bar and a close button over a backdrop, `width`
+/// wide inside its [`WINDOW_MARGIN`]. It looks as the windows do: the title bar keeps
+/// [`TITLE_MARGIN`] and a line under it, the content gets the window's padding.
 pub fn modal<T>(
     ctx: &egui::Context,
     id: egui::Id,
     title: &str,
     width: f32,
     add_contents: impl FnOnce(&mut egui::Ui) -> T,
-) -> egui::ModalResponse<T> {
+) -> Modal<T> {
     let style = ctx.global_style();
     // The margins are applied below, so the title bar can reach the window's edge.
     let frame = egui::Frame::window(&style).inner_margin(0);
     let margin = WINDOW_MARGIN;
-    egui::Modal::new(id).frame(frame).show(ctx, |ui| {
+    let mut closed = false;
+    let response = egui::Modal::new(id).frame(frame).show(ctx, |ui| {
         ui.set_width(width + f32::from(margin.left) + f32::from(margin.right));
         ui.spacing_mut().item_spacing.y = 0.0;
         let bar = egui::Frame::NONE.inner_margin(TITLE_MARGIN).show(ui, |ui| {
             ui.vertical_centered(|ui| ui.label(super::window_title(title)));
         });
-        let y = bar.response.rect.bottom();
-        let x = bar.response.rect.x_range();
-        ui.painter().hline(x, y, style.visuals.window_stroke());
+        let rect = bar.response.rect;
+        ui.painter()
+            .hline(rect.x_range(), rect.bottom(), style.visuals.window_stroke());
+        closed = close_button(ui, rect, &style);
         egui::Frame::NONE
             .inner_margin(margin)
             .show(ui, |ui| {
@@ -60,7 +69,48 @@ pub fn modal<T>(
                 add_contents(ui)
             })
             .inner
-    })
+    });
+    Modal {
+        close: closed || response.should_close(),
+        inner: response.inner,
+    }
+}
+
+/// The close button at the right end of a title bar `bar`, as egui draws a window's; whether
+/// it was clicked.
+fn close_button(ui: &mut egui::Ui, bar: egui::Rect, style: &egui::Style) -> bool {
+    // As tall as the heading, as egui's, so the button sits where theirs does.
+    let size = ui.fonts_mut(|f| f.row_height(&egui::TextStyle::Heading.resolve(style)));
+    let center = egui::pos2(
+        bar.right() - f32::from(TITLE_MARGIN.right) - size / 2.0,
+        bar.center().y,
+    );
+    let rect = egui::Rect::from_center_size(center, egui::Vec2::splat(size));
+    let response = ui.interact(rect, ui.auto_id_with("close"), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::accesskit::Role::Button,
+            ui.is_enabled(),
+            "Close window",
+        )
+    });
+    let visuals = style.interact(&response);
+    let rect = egui::Rect::from_center_size(center, egui::Vec2::splat(style.spacing.icon_width))
+        .shrink(2.0)
+        .expand(visuals.expansion);
+    ui.painter()
+        .line_segment([rect.left_top(), rect.right_bottom()], visuals.fg_stroke);
+    ui.painter()
+        .line_segment([rect.right_top(), rect.left_bottom()], visuals.fg_stroke);
+    response.clicked()
+}
+
+/// A dialog's row of buttons, at the right, in a row of its own height. Add the default
+/// button first: they run from the right edge to the left.
+pub fn button_row(ui: &mut egui::Ui, add_buttons: impl FnOnce(&mut egui::Ui)) {
+    let row = egui::vec2(ui.available_width(), ui.spacing().interact_size.y);
+    let layout = egui::Layout::right_to_left(egui::Align::Center);
+    ui.allocate_ui_with_layout(row, layout, add_buttons);
 }
 
 /// Sets the light and the dark look on `ctx`, the selection in `accent` (the system's, or
