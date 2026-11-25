@@ -1636,8 +1636,8 @@ fn body_size(harness: &Harness<'_, KymoApp>) -> f32 {
 }
 
 /// Names longer than the names column (10 em) are shortened in the middle, whole on hover;
-/// the boundary between names and traces drags (not marking channels bad or panning), and a
-/// double click fits the names again.
+/// the boundary between names and traces drags (not marking channels bad or panning) up to
+/// where all names fit, and a double click fits the names again.
 #[test]
 fn long_names_shorten_and_the_names_column_resizes() {
     let file = long_names_xdf();
@@ -1675,22 +1675,41 @@ fn long_names_shorten_and_the_names_column_resizes() {
     };
     let width = |h: &Harness<'_, KymoApp>| viewer(h).layout().unwrap().names.width();
     let from = edge(&harness);
-    drag(&mut harness, from, from + egui::vec2(100.0, 0.0));
+    drag(&mut harness, from, from + egui::vec2(40.0, 0.0));
     harness.run_steps(2);
     assert!(
-        (width(&harness) - (fitted + 100.0)).abs() < 1.0,
+        (width(&harness) - (fitted + 40.0)).abs() < 1.0,
         "{}",
         width(&harness)
     );
     assert_eq!(viewer(&harness).view().time(), time);
     let view = viewer(&harness).view();
     assert!((0..4).all(|c| !view.is_bad(kymo_core::ChannelId(c))));
-    // Within its limits: half the trace region, 3 em.
+    // Within its limits: as wide as all names fit (here well within half the trace region,
+    // where it would stop otherwise), 3 em.
     let from = edge(&harness);
     drag(&mut harness, from, egui::pos2(1190.0, from.y));
     harness.run_steps(2);
+    let widest = width(&harness);
     let region = SIZE.x - 300.0;
-    assert!(width(&harness) <= region * 0.5 + 1.0, "{}", width(&harness));
+    assert!(widest < region * 0.4, "{widest}");
+    // The longest name is whole: its tooltip doesn't repeat it.
+    let names = viewer(&harness).layout().unwrap().names;
+    hover(
+        &mut harness,
+        egui::pos2(names.center().x, row_y(names, 3.0)),
+    );
+    assert!(tooltip(&mut harness, "Mark as Bad"));
+    let ipd = "IPD - Interpupillary distance, both eyes\n\nMark as Bad";
+    assert!(harness.query_by_label_contains(ipd).is_none());
+    let from = edge(&harness);
+    drag(&mut harness, from, from + egui::vec2(40.0, 0.0));
+    harness.run_steps(2);
+    assert!(
+        (width(&harness) - widest).abs() < 1.0,
+        "{}",
+        width(&harness)
+    );
     let from = edge(&harness);
     drag(&mut harness, from, egui::pos2(0.0, from.y));
     harness.run_steps(2);

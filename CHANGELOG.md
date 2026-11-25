@@ -1,5 +1,9 @@
 # Changelog
 
+## [UNRELEASED] · 2026-11-25
+### 🔧 Fixed
+- Stop the channel names column from being dragged wider than its longest name needs ([#15](https://github.com/cbrnr/kymo/pull/15) by [Clemens Brunner](https://github.com/cbrnr)).
+
 ## [0.2.0] · 2026-11-25
 ### ✨ Added
 - Add a minimap below the traces (View → Show Minimap) that shows the annotations of the whole recording and where the window is ([#11](https://github.com/cbrnr/kymo/pull/11) by [Clemens Brunner](https://github.com/cbrnr)).
