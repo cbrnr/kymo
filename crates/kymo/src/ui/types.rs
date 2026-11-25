@@ -498,7 +498,7 @@ pub fn channel_types_window(
     let listed = listed_types(types, recording);
     let columns = Columns::of(ctx, &listed);
     Overlay::ChannelTypes.center_on_open(ctx, *open);
-    egui::Window::new(window_title(ctx, CHANNEL_TYPES))
+    egui::Window::new(window_title(ctx, Overlay::ChannelTypes, CHANNEL_TYPES))
         .id(Overlay::ChannelTypes.id())
         .title_frame(theme::title_frame(ctx))
         .open(open)

@@ -1307,14 +1307,15 @@ impl KymoApp {
                 ui.label("They are lost if you don't save them.");
                 ui.add_space(8.0);
                 theme::button_row(ui, |ui| {
+                    // From the right: Save…, Cancel, then Don't Save, as macOS orders them.
                     if ui.button("Save…").clicked() {
                         answer = Some(Answer::Save);
                     }
-                    if ui.button("Don't Save").clicked() {
-                        answer = Some(Answer::DontSave);
-                    }
                     if ui.button("Cancel").clicked() {
                         answer = Some(Answer::Cancel);
+                    }
+                    if ui.button("Don't Save").clicked() {
+                        answer = Some(Answer::DontSave);
                     }
                 });
             },

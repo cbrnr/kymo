@@ -55,10 +55,34 @@ pub fn modal<T>(
     let response = egui::Modal::new(id).frame(frame).show(ctx, |ui| {
         ui.set_width(width + f32::from(margin.left) + f32::from(margin.right));
         ui.spacing_mut().item_spacing.y = 0.0;
+        // Painted once the bar's size is known, below the title.
+        let fill = ui.painter().add(egui::Shape::Noop);
         let bar = egui::Frame::NONE.inner_margin(TITLE_MARGIN).show(ui, |ui| {
-            ui.vertical_centered(|ui| ui.label(super::title_text(title)));
+            // The close button's room on either side, so the title stays centered and is cut
+            // short before it reaches the button, as egui's window titles are.
+            let side = close_size(ui, &style) + style.spacing.item_spacing.x;
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.add_space(side);
+                let width = (ui.available_width() - side).max(0.0);
+                let layout = egui::Layout::top_down(egui::Align::Center);
+                ui.allocate_ui_with_layout(egui::vec2(width, 0.0), layout, |ui| {
+                    ui.set_width(width);
+                    ui.add(egui::Label::new(super::title_text(title)).truncate());
+                });
+                ui.add_space(side);
+            });
         });
         let rect = bar.response.rect;
+        // A dialog is always the window in front, so its title bar is filled as egui fills
+        // the active window's.
+        let mut corners = frame.corner_radius;
+        corners.sw = 0;
+        corners.se = 0;
+        ui.painter().set(
+            fill,
+            egui::Shape::rect_filled(rect, corners, style.visuals.widgets.open.weak_bg_fill),
+        );
         ui.painter()
             .hline(rect.x_range(), rect.bottom(), style.visuals.window_stroke());
         closed = close_button(ui, rect, &style);
@@ -79,8 +103,7 @@ pub fn modal<T>(
 /// The close button at the right end of a title bar `bar`, as egui draws a window's; whether
 /// it was clicked.
 fn close_button(ui: &mut egui::Ui, bar: egui::Rect, style: &egui::Style) -> bool {
-    // As tall as the heading, as egui's, so the button sits where theirs does.
-    let size = ui.fonts_mut(|f| f.row_height(&egui::TextStyle::Heading.resolve(style)));
+    let size = close_size(ui, style);
     let center = egui::pos2(
         bar.right() - f32::from(TITLE_MARGIN.right) - size / 2.0,
         bar.center().y,
@@ -103,6 +126,12 @@ fn close_button(ui: &mut egui::Ui, bar: egui::Rect, style: &egui::Style) -> bool
     ui.painter()
         .line_segment([rect.right_top(), rect.left_bottom()], visuals.fg_stroke);
     response.clicked()
+}
+
+/// The room of a title bar's close button: as tall as the heading, as egui's, so the button
+/// sits where theirs does.
+fn close_size(ui: &egui::Ui, style: &egui::Style) -> f32 {
+    ui.fonts_mut(|f| f.row_height(&egui::TextStyle::Heading.resolve(style)))
 }
 
 /// A dialog's row of buttons, at the right, in a row of its own height. Add the default

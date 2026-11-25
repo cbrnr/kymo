@@ -50,7 +50,11 @@ pub fn go_to_window(ctx: &egui::Context, open: &mut bool, field: &mut GoToField)
             .sum()
             .x;
     Overlay::GoToTime.center_on_open(ctx, *open);
-    let title = window_title(ctx, Action::GoToTime.label().trim_end_matches('…'));
+    let title = window_title(
+        ctx,
+        Overlay::GoToTime,
+        Action::GoToTime.label().trim_end_matches('…'),
+    );
     egui::Window::new(title)
         .id(Overlay::GoToTime.id())
         .title_frame(theme::title_frame(ctx))
