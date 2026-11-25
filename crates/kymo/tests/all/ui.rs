@@ -2230,10 +2230,16 @@ fn selected_channels_change_type_together() {
         .click_modifiers(command());
     harness.run_steps(2);
     assert_eq!(selected(&harness), [0, 2]);
-    // A row's menu acts on itself alone, selected or not; the bar on the selection.
+    // A row's menu acts on itself alone, selected or not, without a title, as it opens at
+    // the row; the bar acts on the selection.
+    let named = |h: &Harness<'_, KymoApp>, name: &str| {
+        h.query_all_by_role_and_label(Role::Label, name).count()
+    };
     for name in ["A2", "A1"] {
+        let before = named(&harness, name);
         channel_options(&mut harness, name);
         assert!(harness.query_by_label("Mark 2 Channels as Bad").is_none());
+        assert_eq!(named(&harness, name), before);
         close_menu(&mut harness);
     }
     assert_eq!(selected(&harness), [0, 2]);

@@ -391,8 +391,8 @@ pub fn type_menu(
 
 /// A "⋯" button `height` high at the end of a channel's row, named "Options for {label}"
 /// for screen readers, its dots drawn as `dots` says: a menu for that channel alone (what
-/// acts on several is in the channel list's selection bar), with its name, Mark as Bad or
-/// Mark as Good, Change Type To (see [`change_type_menu`]) and Scale With Type, enabled
+/// acts on several is in the channel list's selection bar; no title, as it opens at the
+/// channel's row), with Mark as Bad or Mark as Good, Change Type To (see [`change_type_menu`]) and Scale With Type, enabled
 /// while it is scaled on its own.
 pub fn channel_menu(
     ui: &mut Ui,
@@ -412,8 +412,6 @@ pub fn channel_menu(
     let mut choice = MenuChoice::default();
     Popup::menu(&response).show(|ui| {
         contained(ui, |ui| {
-            ui.label(RichText::new(label).strong());
-            ui.separator();
             let total = targets.kinds.len();
             for (count, bad) in [(total - targets.bad, true), (targets.bad, false)] {
                 if count > 0 && ui.button(mark_label(count, total, bad)).clicked() {
