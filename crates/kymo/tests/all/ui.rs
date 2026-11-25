@@ -1734,10 +1734,10 @@ fn painted(harness: &Harness<'_, KymoApp>, needle: &str) -> Vec<String> {
 }
 
 /// Names that fit their column stay whole while the sidebar's edge moves the trace area by
-/// fractions of a pixel (its left edge is rounded to one), and the names column drags as
-/// narrow as a double click fits it, where the names fit in less than 3 em.
+/// fractions of a pixel (its left edge is rounded to one), and the names column's edge
+/// doesn't drag where the names fit in less than 3 em.
 #[test]
-fn short_names_stay_whole_and_their_column_drags_to_its_fit() {
+fn short_names_stay_whole_and_their_column_edge_stays_put() {
     let file = TempFile::preset("bdf+c-small");
     let mut harness = window_with_short_frames(file.path());
     ready(&mut harness);
@@ -1760,23 +1760,26 @@ fn short_names_stay_whole_and_their_column_drags_to_its_fit() {
     harness.drop_at(from + egui::vec2(40.0 * 0.13, 0.0));
     harness.step();
 
-    // The names fit in less than 3 em; dragging the column narrower stops at that width,
-    // which a double click gives too.
+    // The names fit in less than 3 em, so the column is already as narrow and as wide as it
+    // drags: its edge offers no drag.
     let em = body_size(&harness);
     let fitted = viewer(&harness).layout().unwrap().names.width();
     assert!(fitted < 3.0 * em + 12.0, "{fitted}");
-    let edge = |h: &Harness<'_, KymoApp>| {
-        let names = viewer(h).layout().unwrap().names;
-        egui::pos2(names.right(), names.center().y)
-    };
-    let from = edge(&harness);
-    drag(&mut harness, from, from + egui::vec2(60.0, 0.0));
-    harness.run_steps(2);
-    let from = edge(&harness);
-    drag(&mut harness, from, egui::pos2(0.0, from.y));
-    harness.run_steps(2);
-    let width = viewer(&harness).layout().unwrap().names.width();
-    assert!((width - fitted).abs() < 1.0, "{width} vs {fitted}");
+    let names = viewer(&harness).layout().unwrap().names;
+    let edge = egui::pos2(names.right(), names.center().y);
+    for dx in [-2.0, 0.0, 2.0] {
+        hover(&mut harness, edge + egui::vec2(dx, 0.0));
+        assert!(
+            !matches!(
+                cursor(&harness),
+                egui::CursorIcon::ResizeHorizontal
+                    | egui::CursorIcon::ResizeWest
+                    | egui::CursorIcon::ResizeEast
+            ),
+            "{:?} at {dx}",
+            cursor(&harness)
+        );
+    }
     assert_eq!(painted(&harness, "\u{2026}"), Vec::<String>::new());
 }
 
@@ -1787,7 +1790,8 @@ fn body_size(harness: &Harness<'_, KymoApp>) -> f32 {
 
 /// Names longer than the names column (10 em) are shortened in the middle, whole on hover;
 /// the boundary between names and traces drags (not marking channels bad or panning) up to
-/// where all names fit, and a double click fits the names again.
+/// where all names fit, its cursor pointing the ways it can go, and a double click fits the
+/// names again.
 #[test]
 fn long_names_shorten_and_the_names_column_resizes() {
     let file = long_names_xdf();
@@ -1824,6 +1828,10 @@ fn long_names_shorten_and_the_names_column_resizes() {
         egui::pos2(names.right(), row_y(names, 1.0))
     };
     let width = |h: &Harness<'_, KymoApp>| viewer(h).layout().unwrap().names.width();
+    // Between its limits, the edge drags both ways.
+    let at = edge(&harness);
+    hover(&mut harness, at);
+    assert_eq!(cursor(&harness), egui::CursorIcon::ResizeHorizontal);
     let from = edge(&harness);
     drag(&mut harness, from, from + egui::vec2(40.0, 0.0));
     harness.run_steps(2);
@@ -1843,6 +1851,10 @@ fn long_names_shorten_and_the_names_column_resizes() {
     let widest = width(&harness);
     let region = SIZE.x - 300.0;
     assert!(widest < region * 0.4, "{widest}");
+    // As wide as it drags, the edge only drags narrower.
+    let at = edge(&harness);
+    hover(&mut harness, at);
+    assert_eq!(cursor(&harness), egui::CursorIcon::ResizeWest);
     // The longest name is whole: its tooltip doesn't repeat it.
     let names = viewer(&harness).layout().unwrap().names;
     hover(
@@ -1868,6 +1880,10 @@ fn long_names_shorten_and_the_names_column_resizes() {
         "{}",
         width(&harness)
     );
+    // As narrow as it drags, the edge only drags wider.
+    let at = edge(&harness);
+    hover(&mut harness, at);
+    assert_eq!(cursor(&harness), egui::CursorIcon::ResizeEast);
 
     // A double click fits the names again.
     let at = edge(&harness);
