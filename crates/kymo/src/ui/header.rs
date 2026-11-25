@@ -2005,7 +2005,15 @@ fn kind_row(
     let recording = view.kinds();
     let choice = ui
         .with_layout(Layout::right_to_left(Align::Center), |ui| {
-            let choice = type_menu(ui, &kind, &label, types, (&targets, &recording), row_height);
+            let choice = type_menu(
+                ui,
+                &kind,
+                &label,
+                types,
+                (&targets, &recording),
+                ids.len(),
+                row_height,
+            );
             if show_count {
                 cells.push(
                     ui.add(
@@ -2022,6 +2030,9 @@ fn kind_row(
         cell.on_hover_text(&full);
     }
     retype(ui, view, &ids, choice.retype);
+    if choice.select {
+        view.select_group(stream, &kind);
+    }
     (clicked, choice.all_types)
 }
 

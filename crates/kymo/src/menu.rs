@@ -180,6 +180,10 @@ pub fn menu_bar(platform: Platform) -> Vec<Menu> {
         a(Action::ToggleEditing),
         a(Action::DeleteAnnotation),
         a(Action::MergeAnnotations),
+        Item::Separator,
+        a(Action::SelectAllChannels),
+        a(Action::SelectBadChannels),
+        a(Action::DeselectChannels),
     ];
     if !mac {
         edit.extend([Item::Separator, a(Action::Settings)]);

@@ -538,6 +538,28 @@ impl ViewState {
             .collect();
     }
 
+    /// Selects the channels of a type (in `stream`, for a recording grouped by stream),
+    /// hidden ones too.
+    pub fn select_group(&mut self, stream: Option<usize>, kind: &ChannelKind) {
+        self.selected = (0..self.order.len())
+            .filter(|&c| self.in_group(c, stream, kind))
+            .map(|c| ChannelId(c as u32))
+            .collect();
+        self.anchor = None;
+    }
+
+    /// Selects every channel, hidden ones too.
+    pub fn select_all(&mut self) {
+        self.selected = self.order.iter().copied().collect();
+        self.anchor = None;
+    }
+
+    /// Selects the bad channels.
+    pub fn select_bad(&mut self) {
+        self.selected = self.bad.clone();
+        self.anchor = None;
+    }
+
     /// Clears the selection; returns whether anything was selected.
     pub fn clear_selection(&mut self) -> bool {
         self.anchor = None;
@@ -643,6 +665,11 @@ impl ViewState {
             Action::ScaleDown => self.scale(1.0 / SCALE_STEP),
             Action::ScaleSelectedUp => self.scale_channels(&self.selected(), SCALE_STEP),
             Action::ScaleSelectedDown => self.scale_channels(&self.selected(), 1.0 / SCALE_STEP),
+            Action::SelectAllChannels => self.select_all(),
+            Action::SelectBadChannels => self.select_bad(),
+            Action::DeselectChannels => {
+                self.clear_selection();
+            }
             Action::DefaultScale => {
                 self.fitted.clear();
                 self.alone.clear();

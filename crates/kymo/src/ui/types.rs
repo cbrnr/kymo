@@ -9,6 +9,8 @@ use eframe::egui::{
 };
 use kymo_core::{ChannelKind, KNOWN_KINDS};
 
+use crate::document::plural;
+
 use crate::types::{TypeSet, TypeSettings};
 use crate::ui::color::{Choice, picker, swatch, swatch_button};
 use crate::ui::menus::check_item;
@@ -120,6 +122,8 @@ pub struct MenuChoice {
     pub rejoin: bool,
     /// The channels marked bad (`true`) or good (a channel's menu only).
     pub bad: Option<bool>,
+    /// The type's channels selected (a type's menu only).
+    pub select: bool,
 }
 
 /// A change of channels' types picked in a [`change_type_menu`].
@@ -321,7 +325,8 @@ fn new_type(ui: &mut Ui) -> Option<ChannelKind> {
 /// A "⋯" button `height` high at the end of a type's row, named "Options for {label}" for
 /// screen readers: gray, or in the text color while `kind`'s DC removal or scaling differs
 /// from its start. A click opens a menu with the type's name, Remove DC and Scale Each
-/// Channel as checkable items (neither for stim channels), Change Type To (see
+/// Channel as checkable items (neither for stim channels), Select (its `channels`
+/// channels, in the channel list), Change Type To (see
 /// [`change_type_menu`]; its channels are `targets`), Reset, enabled while anything differs
 /// from the type's start (its color too; a custom type keeps its entry), and All Types…,
 /// which asks for the Channel Types window.
@@ -331,6 +336,7 @@ pub fn type_menu(
     label: &str,
     types: &mut TypeSettings,
     (targets, recording): (&Targets<'_>, &[ChannelKind]),
+    channels: usize,
     height: f32,
 ) -> MenuChoice {
     let name = kind.name();
@@ -362,6 +368,11 @@ pub fn type_menu(
                 if item.clicked() {
                     types.set_own_scale(kind, !own_scale);
                 }
+            }
+            ui.separator();
+            let select = format!("Select {channels} {name} Channel{}", plural(channels));
+            if ui.button(select).clicked() {
+                choice.select = true;
             }
             ui.separator();
             choice.retype = change_type_menu(ui, targets, recording, types);

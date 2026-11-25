@@ -2305,6 +2305,42 @@ fn bad_toggles_show_where_they_act_and_menus_mark_bad() {
     assert_eq!(bad(&harness), [false, true, false]);
 }
 
+/// ⌘A selects every channel, Edit → Select Bad Channels the bad ones and Deselect All
+/// Channels none; a type's menu selects its channels.
+#[test]
+fn channels_are_selected_all_bad_or_by_type() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let selected = |h: &Harness<'_, KymoApp>| -> Vec<u32> {
+        viewer(h).view().selected().iter().map(|c| c.0).collect()
+    };
+    let perform = |h: &mut Harness<'_, KymoApp>, action: Action| {
+        let ctx = h.ctx.clone();
+        h.state_mut().perform(&ctx, action);
+        h.run_steps(2);
+    };
+    press(&mut harness, command(), Key::A);
+    assert_eq!(selected(&harness), [0, 1, 2, 3, 4]);
+    harness.get_by_label("5 channels selected");
+    perform(&mut harness, Action::DeselectChannels);
+    assert!(selected(&harness).is_empty());
+    // Hidden ones too.
+    click_in_list(&mut harness, Role::CheckBox, "Show Status");
+    press(&mut harness, command(), Key::A);
+    assert_eq!(selected(&harness), [0, 1, 2, 3, 4]);
+
+    click_in_list(&mut harness, Role::Button, "A2 bad");
+    click_in_list(&mut harness, Role::Button, "ECG bad");
+    perform(&mut harness, Action::SelectBadChannels);
+    assert_eq!(selected(&harness), [1, 3]);
+
+    type_options(&mut harness, "EEG channels");
+    menu_path(&mut harness, &["Select 2 EEG Channels"]);
+    assert_eq!(selected(&harness), [0, 1]);
+}
+
 /// Closes an open menu, as Esc does.
 fn close_menu(harness: &mut Harness<'_, KymoApp>) {
     harness.key_press(Key::Escape);
@@ -4534,6 +4570,8 @@ fn the_description_field_names_new_annotations() {
     harness.get_by_label(field).type_text("spike");
     harness.run_steps(2);
     assert_eq!(viewer(&harness).description(), "spike");
+    // ⌘A selected the field's text, not the channels.
+    assert!(viewer(&harness).view().selected().is_empty());
     // ⌘Z and ⇧⌘Z in the field undo and redo the typing (egui undoes quick typing at
     // once); so do the menu's Undo and Redo, which hand the field their keys.
     let shift_command = command() | Modifiers::SHIFT;
