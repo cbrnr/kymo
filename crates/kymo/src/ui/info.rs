@@ -6,7 +6,7 @@ use eframe::egui::{self, Align, Label, Layout, RichText, TextStyle};
 
 use crate::action::Action;
 use crate::document::{GridSummary, InfoRow, Summary, info_text};
-use crate::ui::{Overlay, window_title};
+use crate::ui::{Overlay, theme, window_title};
 
 /// What the Copy button is named, also for tests.
 pub const COPY: &str = "Copy";
@@ -44,6 +44,7 @@ pub fn info_window(ctx: &egui::Context, open: &mut bool, path: &Path, summary: &
     let title = window_title(Action::RecordingInfo.label().trim_end_matches('…'));
     egui::Window::new(title)
         .id(Overlay::RecordingInfo.id())
+        .title_frame(theme::title_frame(ctx))
         .open(open)
         .collapsible(false)
         // As wide as dragged, and as tall as its rows up to most of the screen, where they

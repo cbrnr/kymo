@@ -20,6 +20,15 @@ pub const TEXT_CONTRAST: f32 = 4.5;
 /// The padding inside every window and dialog, on all four sides, in points (egui's is 6).
 pub const WINDOW_MARGIN: egui::Margin = egui::Margin::same(16);
 
+/// The padding of a window's title bar, in points (egui's window margin): the title bar
+/// stays as tall as it was, only the window's content gets [`WINDOW_MARGIN`].
+pub const TITLE_MARGIN: egui::Margin = egui::Margin::same(6);
+
+/// The frame of a window's title bar: the window's, with [`TITLE_MARGIN`].
+pub fn title_frame(ctx: &egui::Context) -> egui::Frame {
+    egui::Frame::window(&ctx.global_style()).inner_margin(TITLE_MARGIN)
+}
+
 /// The frame of a modal dialog: a window's, so that it has the same padding.
 pub fn modal_frame(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::window(&ctx.global_style())

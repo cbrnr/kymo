@@ -11,7 +11,7 @@ use crate::action::Action;
 use crate::keymap::Platform;
 use crate::menu::{Item, SystemItem, menu_bar};
 use crate::shortcuts::overview;
-use crate::ui::{Overlay, window_title};
+use crate::ui::{Overlay, theme, window_title};
 
 /// What a menu shows for an action: whether it can run now, and its checkmark if it has
 /// one.
@@ -212,7 +212,7 @@ pub fn shortcuts_window(ctx: &egui::Context, open: &mut bool, platform: Platform
     let room = (scroll.bar_width + scroll.bar_inner_margin).ceil();
     let margin = style.spacing.window_margin;
     // The title bar keeps the usual margins, so its close button stays in the corner.
-    let title_frame = egui::Frame::window(&style);
+    let title_frame = theme::title_frame(ctx);
     let frame = title_frame.inner_margin(egui::Margin {
         right: room as i8,
         ..margin
@@ -272,6 +272,7 @@ pub fn about_window(ctx: &egui::Context, open: &mut bool) {
     Overlay::About.center_on_open(ctx, *open);
     egui::Window::new(window_title(Action::About.label()))
         .id(Overlay::About.id())
+        .title_frame(theme::title_frame(ctx))
         .open(open)
         .collapsible(false)
         .resizable(false)

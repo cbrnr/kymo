@@ -8,7 +8,7 @@ use crate::ui::fonts::SYSTEM_FONT_NAME;
 use crate::ui::minimap;
 use crate::ui::stepper::stepper;
 use crate::ui::types::CHANNEL_TYPES;
-use crate::ui::{Overlay, window_title};
+use crate::ui::{Overlay, theme, window_title};
 
 /// What the Channel Types row's button is labeled.
 pub const EDIT_TYPES: &str = "Edit\u{2026}";
@@ -33,6 +33,7 @@ pub fn settings_window(
     Overlay::Settings.center_on_open(ctx, *open);
     egui::Window::new(window_title("Settings"))
         .id(Overlay::Settings.id())
+        .title_frame(theme::title_frame(ctx))
         .open(open)
         .collapsible(false)
         .resizable(false)
