@@ -1,6 +1,6 @@
 # Changelog
 
-## [UNRELEASED] · 2026-11-25
+## [0.2.0] · 2026-11-25
 ### ✨ Added
 - Add a minimap below the traces (View → Show Minimap) that shows the annotations of the whole recording and where the window is ([#11](https://github.com/cbrnr/kymo/pull/11) by [Clemens Brunner](https://github.com/cbrnr)).
 - Add a row per channel to the minimap that shows where the signals are large, flat or missing, with channel annotations in their rows and the window spanning the channels on screen ([#12](https://github.com/cbrnr/kymo/pull/12) by [Clemens Brunner](https://github.com/cbrnr)).

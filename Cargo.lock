@@ -2086,7 +2086,7 @@ dependencies = [
 
 [[package]]
 name = "kymo"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -2117,7 +2117,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "blake3",
@@ -2135,7 +2135,7 @@ dependencies = [
 
 [[package]]
 name = "kymo-testgen"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "jiff",
