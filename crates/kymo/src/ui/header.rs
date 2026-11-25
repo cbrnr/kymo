@@ -1354,7 +1354,13 @@ fn channel_list(
                     } else if modifiers.shift {
                         view.select_range(&channel_rows, id);
                     } else {
-                        view.select(id);
+                        // The only selected row: a click takes it out again, still
+                        // scrolling to it.
+                        if view.selected() == [id] {
+                            view.clear_selection();
+                        } else {
+                            view.select(id);
+                        }
                         view.scroll_to(id);
                     }
                 }

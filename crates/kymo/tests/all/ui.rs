@@ -347,6 +347,53 @@ fn clicking_a_name_toggles_bad() {
     assert!(!viewer(&harness).view().is_bad(a2));
 }
 
+/// A click on the only selected row of the channel list takes it out of the selection; the
+/// selected channels' names in the traces are on the selection's fill.
+#[test]
+fn a_click_on_the_selected_row_deselects_it_and_traces_mark_the_selection() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = fonts_window(file.path(), options());
+    ready(&mut harness);
+    let layout = viewer(&harness).layout().unwrap();
+    let rows = viewer(&harness).view().rows() as f32;
+    // In A2's name row, right of its name, where only the fill can be.
+    let spot = egui::pos2(
+        layout.names.right() - 6.0,
+        layout.names.top() + 1.5 * layout.names.height() / rows,
+    );
+    let pixel = |h: &mut Harness<'_, KymoApp>| {
+        hover(h, egui::pos2(900.0, 650.0));
+        h.run_steps(2);
+        let ppp = h.ctx.pixels_per_point();
+        let image = h.render().unwrap();
+        image
+            .get_pixel((spot.x * ppp) as u32, (spot.y * ppp) as u32)
+            .0
+    };
+    let plain = pixel(&mut harness);
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(1)]
+    );
+    assert_ne!(pixel(&mut harness), plain);
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert!(viewer(&harness).view().selected().is_empty());
+    assert_eq!(pixel(&mut harness), plain);
+    // In a larger selection a click selects the row alone, as ever.
+    click_in_list(&mut harness, Role::Label, "A1");
+    harness
+        .get_by_role_and_label(Role::Label, "A2")
+        .click_modifiers(command());
+    harness.run_steps(2);
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(1)]
+    );
+}
+
 /// The channel list shows units as the readout does: µV for EEG, mV for sEEG, whatever the
 /// file stores (uV for both here), in the type's row, as each type's channels share theirs;
 /// the channels' rows show none.
