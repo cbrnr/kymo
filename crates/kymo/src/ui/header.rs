@@ -1401,8 +1401,10 @@ fn channel_list(
                 // "Bad" on a bad channel's row, as text, not a button (a click on the name
                 // beside the traces marks it, as does its menu); its room is taken on every
                 // row, so the columns after it line up.
-                // In the name's color, no more prominent than the name.
-                let text = RichText::new("Bad").small().color(color);
+                // In the text color, whatever the channel's type.
+                let text = RichText::new("Bad")
+                    .small()
+                    .color(ui.visuals().text_color());
                 let width = WidgetText::from(text.clone())
                     .into_galley(
                         ui,
