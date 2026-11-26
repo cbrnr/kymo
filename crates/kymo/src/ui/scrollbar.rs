@@ -10,6 +10,11 @@ use eframe::egui::{self, Rangef, Rect, Sense, Ui};
 pub const MIN_THUMB: f32 = 20.0;
 /// Thickness of the bar in points.
 pub const THICKNESS: f32 = 10.0;
+/// The thumb's width across the bar at rest and under the pointer or dragged, in points.
+const REST_WIDTH: f32 = 3.0;
+const HOT_WIDTH: f32 = THICKNESS - 4.0;
+/// How long the thumb takes to widen or narrow, in seconds.
+const HOT_SECONDS: f32 = 0.1;
 
 /// Where the thumb lies on `track` for `visible` out of `0..total`.
 pub fn thumb(track: Rangef, total: f64, visible: &Range<f64>) -> Rangef {
@@ -89,21 +94,26 @@ pub fn show(
     if ui.is_rect_visible(rect) && total > len {
         let visuals = ui.visuals();
         // The weak text's color: as the system's scroll bars, it stands out on the trace
-        // area and the panels, in both themes, and more so under the pointer.
+        // area and the panels, in both themes, and more so under the pointer, where the
+        // thumb also widens (quickly, not at once). The whole bar takes the pointer either
+        // way, so the thin thumb is as easy to grab.
         let weak = visuals.weak_text_color();
-        let color = if response.dragged() || response.hovered() {
-            weak
-        } else {
-            weak.gamma_multiply(0.6)
-        };
+        let hot = ui.ctx().animate_bool_with_time(
+            id.with("hot"),
+            response.dragged() || response.hovered(),
+            HOT_SECONDS,
+        );
+        let color = weak.gamma_multiply(egui::lerp(0.6..=1.0, hot));
+        let width = egui::lerp(REST_WIDTH..=HOT_WIDTH, hot);
+        let across = |range: Rangef| Rangef::point(range.center()).expand(width / 2.0);
         let at = start.unwrap_or(visible.start);
         let shown = thumb(track, total, &(at..at + len));
         let thumb_rect = if vertical {
-            Rect::from_x_y_ranges(rect.x_range().shrink(2.0), shown)
+            Rect::from_x_y_ranges(across(rect.x_range()), shown)
         } else {
-            Rect::from_x_y_ranges(shown, rect.y_range().shrink(2.0))
+            Rect::from_x_y_ranges(shown, across(rect.y_range()))
         };
-        ui.painter().rect_filled(thumb_rect, THICKNESS / 2.0, color);
+        ui.painter().rect_filled(thumb_rect, width / 2.0, color);
     }
     start
 }
