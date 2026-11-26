@@ -6,7 +6,8 @@ use eframe::Storage;
 use eframe::egui::Color32;
 use kymo::annotations::AnnotationColors;
 use kymo::settings::{
-    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme, nearest,
+    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme, UNLIMITED,
+    nearest,
 };
 use kymo::settings::{load_annotation_colors, save_annotation_colors};
 use kymo::types::TypeSettings;
@@ -137,14 +138,15 @@ fn saved_settings_read_back() {
     assert_eq!(settings.tile_cache_bytes(), 1024 << 20);
     assert_eq!(settings.gpu_memory_bytes(), 512 << 20);
     assert_eq!(settings.disk_cache_bytes(), 0);
-    assert_eq!(
+    let limit = |disk_cache_mb| {
         Settings {
-            disk_cache_mb: 51200,
+            disk_cache_mb,
             ..Settings::default()
         }
-        .disk_cache_bytes(),
-        50 << 30
-    );
+        .disk_cache_bytes()
+    };
+    assert_eq!(limit(10240), 10 << 30);
+    assert_eq!(limit(UNLIMITED), u64::MAX);
 }
 
 #[test]
@@ -314,7 +316,7 @@ fn values_out_of_range_are_clamped() {
     let loaded = Settings::load(Some(&storage));
     assert_eq!(loaded.tile_cache_mb, TILE_CACHE_MB[0]);
     assert_eq!(loaded.gpu_memory_mb, *GPU_MEMORY_MB.last().unwrap());
-    assert_eq!(loaded.disk_cache_mb, *DISK_CACHE_MB.last().unwrap());
+    assert_eq!(loaded.disk_cache_mb, UNLIMITED);
     assert_eq!(loaded.default_window_s, *DEFAULT_WINDOW_S.end());
     assert_eq!(loaded.minimap_height, kymo::ui::minimap::MIN_HEIGHT);
     storage.set_string("kymo.default_window_s", "-3".into());
@@ -359,17 +361,19 @@ fn budgets_snap_to_the_nearest_offered() {
     assert_eq!(nearest(4, &[2, 8]), 2);
 }
 
-/// The disk cache's limit: Off stays off, however near another size is to nothing, and
+/// The disk cache's limit: Off and Unlimited stay so, however near a size is to them, and
 /// any other size is the nearest one offered; the default is offered.
 #[test]
-fn the_disk_cache_limit_snaps_but_off_stays_off() {
+fn the_disk_cache_limit_snaps_but_off_and_unlimited_stay() {
     assert!(DISK_CACHE_MB.contains(&Settings::default().disk_cache_mb));
     for (saved, limit) in [
         ("0", 0),
         ("1", 1024),
         ("3000", 2048),
         ("4000", 5120),
-        ("100000", 51200),
+        ("100000", 10240),
+        (&*(UNLIMITED - 1).to_string(), 10240),
+        (&*UNLIMITED.to_string(), UNLIMITED),
     ] {
         let mut storage = Memory::default();
         storage.set_string("kymo.disk_cache_mb", saved.into());
@@ -381,6 +385,7 @@ fn the_disk_cache_limit_snaps_but_off_stays_off() {
     }
     assert_eq!(disk_cache_text(0), "Off");
     assert_eq!(disk_cache_text(5120), "5 GB");
+    assert_eq!(disk_cache_text(UNLIMITED), "Unlimited");
 }
 
 #[test]

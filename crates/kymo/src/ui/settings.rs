@@ -4,7 +4,7 @@ use eframe::egui::{self, Ui};
 
 use crate::disk_cache::DiskCache;
 use crate::settings::{
-    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme,
+    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme, UNLIMITED,
 };
 use crate::ui::fonts::SYSTEM_FONT_NAME;
 use crate::ui::minimap;
@@ -209,12 +209,12 @@ fn content_width(ctx: &egui::Context) -> f32 {
     labels + GAP + VALUES_WIDTH
 }
 
-/// The values column's width: the longest hint (Disk Cache's, about 320 points in egui's
-/// font) on one line, with room for wider fonts.
+/// The values column's width: the longest hint (Scale's, about 300 points in egui's font)
+/// on one line, with room for wider fonts.
 const VALUES_WIDTH: f32 = 360.0;
 
 /// What the Disk Cache row's hint says.
-pub const DISK_CACHE_HINT: &str = "Overviews that make recordings open faster; Off keeps none.";
+pub const DISK_CACHE_HINT: &str = "Overviews that make recordings open faster.";
 
 /// A label, a menu of the `offered` budgets for `mb` (`default` marked as such), each shown
 /// as `text` gives it, and a hint below in the menu's column.
@@ -259,12 +259,13 @@ fn limit_menu(
         .labelled_by(label);
 }
 
-/// The disk cache's limit as its menu shows it: "Off" for none, else as [`megabytes_text`].
+/// The disk cache's limit as its menu shows it: "Off" for none, "Unlimited" for no limit,
+/// else as [`megabytes_text`].
 pub fn disk_cache_text(mb: u32) -> String {
-    if mb == 0 {
-        "Off".to_owned()
-    } else {
-        megabytes_text(mb)
+    match mb {
+        0 => "Off".to_owned(),
+        UNLIMITED => "Unlimited".to_owned(),
+        mb => megabytes_text(mb),
     }
 }
 

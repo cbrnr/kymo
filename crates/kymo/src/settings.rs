@@ -18,9 +18,11 @@ pub const TILE_CACHE_MB: [u32; 6] = [128, 256, 512, 1024, 2048, 4096];
 /// The megabytes of GPU memory the trace renderer may take for tiles, as Settings offers
 /// them.
 pub const GPU_MEMORY_MB: [u32; 5] = [128, 256, 512, 1024, 2048];
+/// The disk cache's limit that keeps every cache: no limit.
+pub const UNLIMITED: u32 = u32::MAX;
 /// The megabytes the disk cache may hold, as Settings offers them; 0 keeps nothing of
-/// recordings that are closed.
-pub const DISK_CACHE_MB: [u32; 7] = [0, 1024, 2048, 5120, 10240, 20480, 51200];
+/// recordings that are closed, [`UNLIMITED`] everything.
+pub const DISK_CACHE_MB: [u32; 6] = [0, 1024, 2048, 5120, 10240, UNLIMITED];
 /// Seconds the default window may span.
 pub const DEFAULT_WINDOW_S: RangeInclusive<f64> = 1.0..=3600.0;
 
@@ -115,7 +117,8 @@ pub struct Settings {
     /// Budget for tiles on the GPU, in MB.
     pub gpu_memory_mb: u32,
     /// What the disk cache may hold, in MB: the least recently used caches of closed
-    /// recordings go beyond it (see [`kymo_core::cache::trim`]); 0 keeps none.
+    /// recordings go beyond it (see [`kymo_core::cache::trim`]); 0 keeps none, [`UNLIMITED`]
+    /// all.
     pub disk_cache_mb: u32,
     /// Seconds shown when a recording opens and after Default Window (⌘0).
     pub default_window_s: f64,
@@ -250,8 +253,8 @@ impl Settings {
         storage.set_string(CHECK_UPDATES_KEY, self.check_updates.to_string());
     }
 
-    /// Every setting within its range, each budget the nearest offered one (a disk cache of 0
-    /// stays 0); NaN seconds and a minimap height that isn't a number become the default.
+    /// Every setting within its range, each budget the nearest offered one (a disk cache that
+    /// is off or has no limit stays so); NaN seconds and a minimap height that isn't a number become the default.
     pub fn clamped(self) -> Settings {
         let seconds = if self.default_window_s.is_nan() {
             DEFAULT_SPAN
@@ -261,10 +264,10 @@ impl Settings {
         Settings {
             tile_cache_mb: nearest(self.tile_cache_mb, &TILE_CACHE_MB),
             gpu_memory_mb: nearest(self.gpu_memory_mb, &GPU_MEMORY_MB),
-            // Off stays off; any other size is the nearest one offered.
+            // Off and no limit stay; any other size is the nearest one offered.
             disk_cache_mb: match self.disk_cache_mb {
-                0 => 0,
-                mb => nearest(mb, &DISK_CACHE_MB[1..]),
+                mb @ (0 | UNLIMITED) => mb,
+                mb => nearest(mb, &DISK_CACHE_MB[1..DISK_CACHE_MB.len() - 1]),
             },
             default_window_s: seconds.clamp(*DEFAULT_WINDOW_S.start(), *DEFAULT_WINDOW_S.end()),
             antialias: self.antialias,
@@ -294,7 +297,10 @@ impl Settings {
     }
 
     pub fn disk_cache_bytes(&self) -> u64 {
-        u64::from(self.disk_cache_mb) << 20
+        match self.disk_cache_mb {
+            UNLIMITED => u64::MAX,
+            mb => u64::from(mb) << 20,
+        }
     }
 }
 
