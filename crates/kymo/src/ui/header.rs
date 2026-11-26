@@ -3,8 +3,9 @@
 use std::collections::{BTreeSet, HashMap};
 
 use eframe::egui::{
-    self, Align, Checkbox, Color32, CursorIcon, FontId, Frame, Id, Label, Layout, Margin, Response,
-    RichText, ScrollArea, Sense, TextStyle, Ui, UiBuilder, WidgetText, style::ScrollStyle, vec2,
+    self, Align, Checkbox, Color32, CursorIcon, FontId, Frame, Id, Label, Layout, Margin, Rect,
+    Response, RichText, ScrollArea, Sense, TextStyle, Ui, UiBuilder, WidgetText,
+    scroll_area::ScrollBarVisibility, vec2,
 };
 use kymo_core::{ChannelId, ChannelKind, GridId, Stream, StreamContent, Unit};
 
@@ -15,13 +16,13 @@ use crate::keymap::{Keymap, Platform};
 use crate::types::TypeSettings;
 use crate::ui::axis::{Clock, format_time};
 use crate::ui::color::{Choice, swatch};
-use crate::ui::elide_middle;
 use crate::ui::palette::{annotation_color, type_color};
 use crate::ui::readout::display_unit;
 use crate::ui::types::{
     Dots, Retype, SCALE_WITH_TYPE, Targets, change_type_items, channel_menu, mark_label, type_menu,
     type_swatch,
 };
+use crate::ui::{elide_middle, scrollbar};
 use crate::view::ViewState;
 
 /// Runs `add_contents` in exactly the width `ui` offers, clipping whatever is wider. A panel
@@ -1211,15 +1212,6 @@ fn channel_list(
     // nothing moves as it shows.
     let menu = row_height;
     let mut last_bottom = f32::NEG_INFINITY;
-    // A solid scroll bar, which egui makes room for while the list scrolls: a floating one
-    // lies over the rows' ends and takes the clicks meant for the types' menus.
-    // Its handle shows whenever the list scrolls, not only under the pointer, as its room is
-    // taken either way.
-    let solid = ScrollStyle {
-        dormant_handle_opacity: ScrollStyle::solid().active_handle_opacity,
-        ..ScrollStyle::solid()
-    };
-    let scroll = std::mem::replace(&mut ui.spacing_mut().scroll, solid);
     // Below the rows, while channels are selected.
     if !view.selected().is_empty() {
         egui::Panel::bottom("selection bar")
@@ -1227,277 +1219,310 @@ fn channel_list(
             .frame(Frame::NONE.inner_margin(Margin::symmetric(0, 6)))
             .show(ui, |ui| selection_bar(ui, (view, marks), types, platform));
     }
-    let area = from_top(ui, "channels", recording, ScrollArea::vertical())
+    // The traces' scrollbar (see `scrollbar::show`) in a strip at the list's right, while
+    // the list scrolls, in place of egui's: the two look and behave alike. The strip lies
+    // beside the rows, not over their ends, where it would take the clicks meant for the
+    // types' menus. The wheel and the trackpad scroll the list as egui does; the bar
+    // follows the offset the list had at the end of the last frame, and moves it at once.
+    let spacing = ui.spacing().item_spacing.y;
+    let content = ((row_height + spacing) * items.len() as f32 - spacing).max(0.0);
+    let room = ui.available_rect_before_wrap();
+    let scrolls = content > room.height();
+    let offset_key = ui.scope_id().with("channel list offset");
+    let offset = ui
+        .data(|d| d.get_temp::<(u64, f32)>(offset_key))
+        .filter(|(r, _)| *r == recording)
+        .map_or(0.0, |(_, offset)| offset)
+        .clamp(0.0, (content - room.height()).max(0.0));
+    let mut area = from_top(ui, "channels", recording, ScrollArea::vertical())
+        .id_salt("channels")
         .auto_shrink(false)
-        .show_rows(ui, row_height, items.len(), |ui, rows| {
-            let fit = columns.fit(
-                ui.available_width(),
-                fixed + indent(deepest) + menu + gap,
-                gap,
-                LIST_MIN_NAME_EMS * body.size,
-                LIST_MIN_UNIT_EMS * body.size,
-            );
-            for i in rows {
-                let sense = match items[i] {
-                    Item::Channel(..) => Sense::click(),
-                    _ => Sense::hover(),
-                };
-                let (rect, row_response) =
-                    ui.allocate_exact_size(vec2(ui.available_width(), row_height), sense);
-                last_bottom = rect.bottom();
-                if i % 2 == 1 {
-                    stripe(ui, rect);
-                }
-                let pointed = ui.rect_contains_pointer(rect);
-                if let Item::Channel(id, _, _) = items[i]
-                    && view.is_selected(id)
-                {
-                    let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.4);
-                    ui.painter().rect_filled(rect, 0.0, fill);
-                }
-                // What is left past the row's right edge is clipped.
-                let mut row = ui.new_child(
-                    UiBuilder::new()
-                        .max_rect(rect)
-                        .layout(Layout::left_to_right(Align::Center)),
+        .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden);
+    let mut rows_rect = room;
+    if scrolls {
+        rows_rect.max.x -= scrollbar::THICKNESS;
+        let strip = Rect::from_x_y_ranges(rows_rect.right()..=room.right(), room.y_range());
+        let visible = f64::from(offset)..f64::from(offset + room.height());
+        let id = ui.scope_id().with("channel list scrollbar");
+        if let Some(start) = scrollbar::show(ui, id, strip, true, f64::from(content), visible) {
+            area = area.vertical_scroll_offset(start as f32);
+        }
+    }
+    let rows = UiBuilder::new().id_salt("channel rows").max_rect(rows_rect);
+    let output = ui
+        .scope_builder(rows, |ui| {
+            area.show_rows(ui, row_height, items.len(), |ui, rows| {
+                let fit = columns.fit(
+                    ui.available_width(),
+                    fixed + indent(deepest) + menu + gap,
+                    gap,
+                    LIST_MIN_NAME_EMS * body.size,
+                    LIST_MIN_UNIT_EMS * body.size,
                 );
-                row.spacing_mut().item_spacing.x = gap;
-                let ui = &mut row;
-                // A cell of exactly `width`, the label at its left, or at its right with
-                // `Layout::right_to_left`.
-                let cell = |ui: &mut Ui, width: f32, layout: Layout, label: Label| {
-                    let (_, rect) = ui.allocate_space(vec2(width, row_height));
-                    // A child that leaves the row's cursor after the whole cell.
-                    let builder = UiBuilder::new().max_rect(rect).layout(layout);
-                    ui.new_child(builder).add(label)
-                };
-                let left = Layout::left_to_right(Align::Center);
+                for i in rows {
+                    let sense = match items[i] {
+                        Item::Channel(..) => Sense::click(),
+                        _ => Sense::hover(),
+                    };
+                    let (rect, row_response) =
+                        ui.allocate_exact_size(vec2(ui.available_width(), row_height), sense);
+                    last_bottom = rect.bottom();
+                    if i % 2 == 1 {
+                        stripe(ui, rect);
+                    }
+                    let pointed = ui.rect_contains_pointer(rect);
+                    if let Item::Channel(id, _, _) = items[i]
+                        && view.is_selected(id)
+                    {
+                        let fill = ui.visuals().selection.bg_fill.gamma_multiply(0.4);
+                        ui.painter().rect_filled(rect, 0.0, fill);
+                    }
+                    // What is left past the row's right edge is clipped.
+                    let mut row = ui.new_child(
+                        UiBuilder::new()
+                            .max_rect(rect)
+                            .layout(Layout::left_to_right(Align::Center)),
+                    );
+                    row.spacing_mut().item_spacing.x = gap;
+                    let ui = &mut row;
+                    // A cell of exactly `width`, the label at its left, or at its right with
+                    // `Layout::right_to_left`.
+                    let cell = |ui: &mut Ui, width: f32, layout: Layout, label: Label| {
+                        let (_, rect) = ui.allocate_space(vec2(width, row_height));
+                        // A child that leaves the row's cursor after the whole cell.
+                        let builder = UiBuilder::new().max_rect(rect).layout(layout);
+                        ui.new_child(builder).add(label)
+                    };
+                    let left = Layout::left_to_right(Align::Center);
 
-                let (id, group, depth) = match items[i].clone() {
-                    Item::Stream(s) => {
-                        let open = !closed.contains(&Fold::Stream(s));
-                        if stream_row(ui, document, s, open, view, row_response) {
-                            toggled = Some(Fold::Stream(s));
+                    let (id, group, depth) = match items[i].clone() {
+                        Item::Stream(s) => {
+                            let open = !closed.contains(&Fold::Stream(s));
+                            if stream_row(ui, document, s, open, view, row_response) {
+                                toggled = Some(Fold::Stream(s));
+                            }
+                            continue;
                         }
-                        continue;
-                    }
-                    Item::Kind(group, depth) => {
-                        let fold = Fold::Kind(group.clone());
-                        let in_stream = group
-                            .0
-                            .filter(|_| grouped)
-                            .map(|s| stream_name(&streams[s]));
-                        let name = kind_label(&group.1, in_stream.as_deref());
-                        ui.add_space(depth as f32 * level);
-                        let rate = in_stream
-                            .is_none()
-                            .then(|| group_rate(document, view, &group));
-                        let unit = shared
-                            .get(&group)
-                            .cloned()
-                            .flatten()
-                            .filter(|u| !u.is_empty());
-                        let kind = KindRow {
-                            group,
-                            unit,
-                            label: name,
-                            open: !closed.contains(&fold),
-                            // Under a stream, the stream's row has the rate.
-                            rate,
-                        };
-                        let (folded, asked) = kind_row(ui, view, kind, types, row_response);
-                        if folded {
-                            toggled = Some(fold);
+                        Item::Kind(group, depth) => {
+                            let fold = Fold::Kind(group.clone());
+                            let in_stream = group
+                                .0
+                                .filter(|_| grouped)
+                                .map(|s| stream_name(&streams[s]));
+                            let name = kind_label(&group.1, in_stream.as_deref());
+                            ui.add_space(depth as f32 * level);
+                            let rate = in_stream
+                                .is_none()
+                                .then(|| group_rate(document, view, &group));
+                            let unit = shared
+                                .get(&group)
+                                .cloned()
+                                .flatten()
+                                .filter(|u| !u.is_empty());
+                            let kind = KindRow {
+                                group,
+                                unit,
+                                label: name,
+                                open: !closed.contains(&fold),
+                                // Under a stream, the stream's row has the rate.
+                                rate,
+                            };
+                            let (folded, asked) = kind_row(ui, view, kind, types, row_response);
+                            if folded {
+                                toggled = Some(fold);
+                            }
+                            all_types |= asked;
+                            continue;
                         }
-                        all_types |= asked;
-                        continue;
-                    }
-                    Item::NotShown(s) => {
-                        not_shown_row(ui, &streams[s], row_response);
-                        continue;
-                    }
-                    Item::Channel(id, group, depth) => (id, group, depth),
-                };
-                let channel = rec.channel(id);
-                ui.add_space(indent(depth));
-                let name_width = fit.name + (deepest - depth) as f32 * level;
-                let name = &channel.name;
-                // Under its stream, the name within it ("X" for "ACC X").
-                let listed = list_name(channel, grouped);
-                let grid = rec.grid(channel.grid);
-                let (unit, _) = display_unit(view.kind_of(id), &channel.unit);
-                // Its own unit only where its type row's channels differ in unit; otherwise
-                // the type row shows it.
-                let own_unit = shared.get(&group).is_some_and(Option::is_none);
-                let unit_width = fit.unit.filter(|_| own_unit);
-                // The mark of a channel scaled on its own follows its name, within the
-                // name's column.
-                let alone = view.scaled_alone(id);
-                let mark = if alone { alone_mark_width(ui) } else { 0.0 };
-                let short_name = elide_middle(ui.ctx(), listed, &body, name_width - mark);
-                let short_unit =
-                    unit_width.and_then(|width| elide_middle(ui.ctx(), &unit, &body, width));
-                // The row's whole text where some of it is shortened or left out, or its
-                // rate isn't its type's alone.
-                let mixed = mixed_rates.contains(&group);
-                let full = (short_name.is_some()
-                    || listed != name
-                    || short_unit.is_some()
-                    || (own_unit && unit_width.is_none())
-                    || mixed)
-                    .then(|| {
-                        let unit = if unit.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" \u{b7} {unit}")
-                        };
-                        format!(
-                            "{name}\n{}{unit} \u{b7} {}",
-                            view.kind_of(id).name(),
-                            grid_rate(grid)
-                        )
-                    });
+                        Item::NotShown(s) => {
+                            not_shown_row(ui, &streams[s], row_response);
+                            continue;
+                        }
+                        Item::Channel(id, group, depth) => (id, group, depth),
+                    };
+                    let channel = rec.channel(id);
+                    ui.add_space(indent(depth));
+                    let name_width = fit.name + (deepest - depth) as f32 * level;
+                    let name = &channel.name;
+                    // Under its stream, the name within it ("X" for "ACC X").
+                    let listed = list_name(channel, grouped);
+                    let grid = rec.grid(channel.grid);
+                    let (unit, _) = display_unit(view.kind_of(id), &channel.unit);
+                    // Its own unit only where its type row's channels differ in unit; otherwise
+                    // the type row shows it.
+                    let own_unit = shared.get(&group).is_some_and(Option::is_none);
+                    let unit_width = fit.unit.filter(|_| own_unit);
+                    // The mark of a channel scaled on its own follows its name, within the
+                    // name's column.
+                    let alone = view.scaled_alone(id);
+                    let mark = if alone { alone_mark_width(ui) } else { 0.0 };
+                    let short_name = elide_middle(ui.ctx(), listed, &body, name_width - mark);
+                    let short_unit =
+                        unit_width.and_then(|width| elide_middle(ui.ctx(), &unit, &body, width));
+                    // The row's whole text where some of it is shortened or left out, or its
+                    // rate isn't its type's alone.
+                    let mixed = mixed_rates.contains(&group);
+                    let full = (short_name.is_some()
+                        || listed != name
+                        || short_unit.is_some()
+                        || (own_unit && unit_width.is_none())
+                        || mixed)
+                        .then(|| {
+                            let unit = if unit.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" \u{b7} {unit}")
+                            };
+                            format!(
+                                "{name}\n{}{unit} \u{b7} {}",
+                                view.kind_of(id).name(),
+                                grid_rate(grid)
+                            )
+                        });
 
-                let mut shown = view.is_shown(id);
-                let response = ui.add(Checkbox::without_text(&mut shown));
-                accessible_label(ui, &response, format!("Show {name}"));
-                let response = visibility_hint(response, shown, name);
-                if response.changed() {
-                    view.set_shown(id, shown);
-                }
+                    let mut shown = view.is_shown(id);
+                    let response = ui.add(Checkbox::without_text(&mut shown));
+                    accessible_label(ui, &response, format!("Show {name}"));
+                    let response = visibility_hint(response, shown, name);
+                    if response.changed() {
+                        view.set_shown(id, shown);
+                    }
 
-                // A bad channel's name isn't grayed as its trace is: "Bad" after it says so.
-                let bad = view.is_bad(id);
-                let color = if shown {
-                    type_color(view.kind_of(id), types, ui.visuals())
-                } else {
-                    ui.visuals().weak_text_color()
-                };
-                let text = short_name.as_deref().unwrap_or(listed);
-                let label = Label::new(RichText::new(text).color(color))
-                    .sense(Sense::click())
-                    .selectable(false)
-                    .extend();
-                let mut response = cell(ui, name_width, left, label);
-                if text != name {
-                    accessible_text(ui, &response, name.clone());
-                }
-                if alone && alone_mark(ui, response.rect, platform, id) {
-                    view.rejoin(&[id]);
-                }
-                if let Some(full) = &full {
-                    response = response.on_hover_text(full);
-                }
-                // The whole row is one target: a click selects it alone (or takes the only
-                // selected row out again), ⌘-click adds or takes it out, ⇧-click selects the
-                // rows from the last clicked; each scrolls the traces to it if it is off
-                // screen.
-                if response.hovered() || row_response.hovered() {
-                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-                }
-                if response.clicked() || row_response.clicked() {
-                    let modifiers = ui.input(|i| i.modifiers);
-                    if modifiers.command {
-                        view.toggle_selected(id);
-                    } else if modifiers.shift {
-                        view.select_range(&channel_rows, id);
-                    } else if view.selected() == [id] {
-                        view.clear_selection();
+                    // A bad channel's name isn't grayed as its trace is: "Bad" after it says so.
+                    let bad = view.is_bad(id);
+                    let color = if shown {
+                        type_color(view.kind_of(id), types, ui.visuals())
                     } else {
-                        view.select(id);
+                        ui.visuals().weak_text_color()
+                    };
+                    let text = short_name.as_deref().unwrap_or(listed);
+                    let label = Label::new(RichText::new(text).color(color))
+                        .sense(Sense::click())
+                        .selectable(false)
+                        .extend();
+                    let mut response = cell(ui, name_width, left, label);
+                    if text != name {
+                        accessible_text(ui, &response, name.clone());
                     }
-                    view.reveal(id);
-                }
+                    if alone && alone_mark(ui, response.rect, platform, id) {
+                        view.rejoin(&[id]);
+                    }
+                    if let Some(full) = &full {
+                        response = response.on_hover_text(full);
+                    }
+                    // The whole row is one target: a click selects it alone (or takes the only
+                    // selected row out again), ⌘-click adds or takes it out, ⇧-click selects the
+                    // rows from the last clicked; each scrolls the traces to it if it is off
+                    // screen.
+                    if response.hovered() || row_response.hovered() {
+                        ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+                    }
+                    if response.clicked() || row_response.clicked() {
+                        let modifiers = ui.input(|i| i.modifiers);
+                        if modifiers.command {
+                            view.toggle_selected(id);
+                        } else if modifiers.shift {
+                            view.select_range(&channel_rows, id);
+                        } else if view.selected() == [id] {
+                            view.clear_selection();
+                        } else {
+                            view.select(id);
+                        }
+                        view.reveal(id);
+                    }
 
-                // "Bad" on a bad channel's row, as text, not a button (a click on the name
-                // beside the traces marks it, as does its menu); its room is taken on every
-                // row, so the columns after it line up.
-                // In the text color, whatever the channel's type.
-                let text = RichText::new("Bad")
-                    .small()
-                    .color(ui.visuals().text_color());
-                let width = WidgetText::from(text.clone())
-                    .into_galley(
-                        ui,
-                        Some(egui::TextWrapMode::Extend),
-                        f32::INFINITY,
-                        TextStyle::Body,
-                    )
-                    .size()
-                    .x
-                    + 2.0 * ui.spacing().button_padding.x;
-                let (room, _) = ui.allocate_exact_size(vec2(width, row_height), Sense::hover());
-                if bad {
-                    let response = ui
+                    // "Bad" on a bad channel's row, as text, not a button (a click on the name
+                    // beside the traces marks it, as does its menu); its room is taken on every
+                    // row, so the columns after it line up.
+                    // In the text color, whatever the channel's type.
+                    let text = RichText::new("Bad")
+                        .small()
+                        .color(ui.visuals().text_color());
+                    let width = WidgetText::from(text.clone())
+                        .into_galley(
+                            ui,
+                            Some(egui::TextWrapMode::Extend),
+                            f32::INFINITY,
+                            TextStyle::Body,
+                        )
+                        .size()
+                        .x
+                        + 2.0 * ui.spacing().button_padding.x;
+                    let (room, _) = ui.allocate_exact_size(vec2(width, row_height), Sense::hover());
+                    if bad {
+                        let response = ui
                         .put(room, Label::new(text).selectable(false))
                         .on_hover_text(
                             "A bad channel: its menu, or a click on its name beside the traces, \
                              marks it good.",
                         );
-                    accessible_text(ui, &response, format!("{name} bad"));
-                }
-                // Everything but the indent and the name, without the gap before the next
-                // column; in whole points, so positions rounded to pixels don't change it
-                // from frame to frame.
-                let others = ui.cursor().left() - rect.left() - indent(depth) - name_width - gap;
-                measured = Some(others.ceil());
+                        accessible_text(ui, &response, format!("{name} bad"));
+                    }
+                    // Everything but the indent and the name, without the gap before the next
+                    // column; in whole points, so positions rounded to pixels don't change it
+                    // from frame to frame.
+                    let others =
+                        ui.cursor().left() - rect.left() - indent(depth) - name_width - gap;
+                    measured = Some(others.ceil());
 
-                // Not selectable, as the list's other labels.
-                let weak = |text: &str| {
-                    Label::new(RichText::new(text).weak())
-                        .selectable(false)
-                        .extend()
-                };
-                // Each cell shows the row's whole text too, as the name hides the row from
-                // the pointer.
-                let mut cells = vec![row_response];
-                if let Some(width) = unit_width {
-                    let response = cell(
-                        ui,
-                        width,
-                        left,
-                        weak(short_unit.as_deref().unwrap_or(&unit)),
-                    );
-                    if short_unit.is_some() {
-                        accessible_text(ui, &response, unit.clone());
-                    }
-                    cells.push(response);
-                }
-                // The menu acts on its row alone, selected or not (what acts on the
-                // selection is in the bar below the list), so it shows only on hover.
-                let ids = [id];
-                let kinds = [view.kind_of(id).clone()];
-                let targets = targets_of(view, &ids, &kinds);
-                let dots = if pointed { Dots::Weak } else { Dots::Hidden };
-                let choice = ui
-                    .with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        channel_menu(
+                    // Not selectable, as the list's other labels.
+                    let weak = |text: &str| {
+                        Label::new(RichText::new(text).weak())
+                            .selectable(false)
+                            .extend()
+                    };
+                    // Each cell shows the row's whole text too, as the name hides the row from
+                    // the pointer.
+                    let mut cells = vec![row_response];
+                    if let Some(width) = unit_width {
+                        let response = cell(
                             ui,
-                            name,
-                            types,
-                            (&targets, &recording_kinds),
-                            dots,
-                            row_height,
-                        )
-                    })
-                    .inner;
-                retype(ui, view, &ids, choice.retype);
-                if choice.rejoin {
-                    view.rejoin(&ids);
-                }
-                if let Some(bad) = choice.bad {
-                    *marks = Some((vec![id], bad));
-                }
-                all_types |= choice.all_types;
-                if let Some(full) = full {
-                    for response in cells {
-                        response.on_hover_text(&full);
+                            width,
+                            left,
+                            weak(short_unit.as_deref().unwrap_or(&unit)),
+                        );
+                        if short_unit.is_some() {
+                            accessible_text(ui, &response, unit.clone());
+                        }
+                        cells.push(response);
+                    }
+                    // The menu acts on its row alone, selected or not (what acts on the
+                    // selection is in the bar below the list), so it shows only on hover.
+                    let ids = [id];
+                    let kinds = [view.kind_of(id).clone()];
+                    let targets = targets_of(view, &ids, &kinds);
+                    let dots = if pointed { Dots::Weak } else { Dots::Hidden };
+                    let choice = ui
+                        .with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            channel_menu(
+                                ui,
+                                name,
+                                types,
+                                (&targets, &recording_kinds),
+                                dots,
+                                row_height,
+                            )
+                        })
+                        .inner;
+                    retype(ui, view, &ids, choice.retype);
+                    if choice.rejoin {
+                        view.rejoin(&ids);
+                    }
+                    if let Some(bad) = choice.bad {
+                        *marks = Some((vec![id], bad));
+                    }
+                    all_types |= choice.all_types;
+                    if let Some(full) = full {
+                        for response in cells {
+                            response.on_hover_text(&full);
+                        }
                     }
                 }
-            }
+            })
         })
-        .inner_rect;
-    ui.spacing_mut().scroll = scroll;
+        .inner;
+    let area = output.inner_rect;
+    ui.data_mut(|d| d.insert_temp(offset_key, (recording, output.state.clamped_offset().y)));
     // A click below the rows clears the selection.
     let below = ui.input(|i| {
         i.pointer.primary_clicked()
