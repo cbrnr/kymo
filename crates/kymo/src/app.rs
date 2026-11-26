@@ -138,6 +138,9 @@ pub struct KymoApp {
     settings_open: bool,
     /// The disk cache Settings shows.
     disk_cache: DiskCache,
+    /// The open recording's sidecar and the limit the disk cache was last trimmed for (see
+    /// [`KymoApp::trim_disk_cache`]); `None` before the first trim.
+    trimmed: Option<(Option<PathBuf>, u64)>,
     /// Whether the Recording Info window is open.
     info_open: bool,
     /// Whether the Channel Types window is open, and what its filter holds.
@@ -247,6 +250,7 @@ impl KymoApp {
             about_open: false,
             settings_open: false,
             disk_cache,
+            trimmed: None,
             info_open: false,
             channel_types_open: false,
             channel_types_filter: String::new(),
@@ -686,6 +690,42 @@ impl KymoApp {
         }));
     }
 
+    /// Keeps the disk cache within its limit: trims it at startup, when the open
+    /// recording's sidecar changes (another recording opens, the open one closes or its
+    /// sidecar is complete) and when the limit does. Not while a recording opens, whose
+    /// sidecar isn't known yet and must stay, nor while the cache is measured or cleared,
+    /// which a later frame waits for.
+    fn trim_disk_cache(&mut self, ctx: &egui::Context) {
+        if matches!(self.state, State::Loading(_)) {
+            return;
+        }
+        let now = (
+            self.viewer().and_then(Viewer::sidecar_path),
+            self.options.settings.disk_cache_bytes(),
+        );
+        if self.trimmed.as_ref() == Some(&now) {
+            return;
+        }
+        let repaint = ctx.clone();
+        let keep = now.0.clone().into_iter().collect();
+        if self
+            .disk_cache
+            .trim(now.1, keep, move || repaint.request_repaint())
+        {
+            self.trimmed = Some(now);
+        }
+    }
+
+    /// Closes the recording and trims the disk cache to its limit, keeping nothing open,
+    /// so a limit of 0 leaves no cache of it behind. On quitting, on the UI thread, as
+    /// there are no frames left to wait in.
+    fn close_for_exit(&mut self) {
+        self.state = State::Empty;
+        if let Some(dir) = &self.options.sidecar_dir {
+            let _ = kymo_core::cache::trim(dir, self.options.settings.disk_cache_bytes(), &[]);
+        }
+    }
+
     /// One frame: picks up a finished open, handles keys, and draws the window.
     pub fn frame(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
@@ -763,6 +803,7 @@ impl KymoApp {
         {
             viewer.go_to(seconds);
         }
+        self.trim_disk_cache(&ctx);
         let repaint = ctx.clone();
         self.disk_cache
             .follow(self.settings_open, move || repaint.request_repaint());
@@ -1611,6 +1652,10 @@ impl eframe::App for KymoApp {
         self.options.update_state.save(storage);
         save_annotation_colors(&self.options.annotation_colors, storage);
         self.options.recent.save(storage);
+    }
+
+    fn on_exit(&mut self) {
+        self.close_for_exit();
     }
 }
 

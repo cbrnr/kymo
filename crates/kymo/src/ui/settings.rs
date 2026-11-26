@@ -3,7 +3,9 @@
 use eframe::egui::{self, Ui};
 
 use crate::disk_cache::DiskCache;
-use crate::settings::{DEFAULT_WINDOW_S, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme};
+use crate::settings::{
+    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme,
+};
 use crate::ui::fonts::SYSTEM_FONT_NAME;
 use crate::ui::minimap;
 use crate::ui::stepper::stepper;
@@ -17,8 +19,8 @@ pub const EDIT_TYPES: &str = "Edit\u{2026}";
 pub const CLEAR_CACHE: &str = "Clear";
 
 /// The Settings window, while `open`. Its Channel Types row's button opens the Channel
-/// Types window (`channel_types`); its Disk Cache row shows `cache`, where there is one, and
-/// sets `clear_cache` when its button is clicked. Returns whether a setting changed; the
+/// Types window (`channel_types`); its Disk Cache row, where there is a cache, sets its
+/// limit, shows `cache` and sets `clear_cache` when its button is clicked. Returns whether a setting changed; the
 /// caller applies it at once.
 pub fn settings_window(
     ctx: &egui::Context,
@@ -54,89 +56,102 @@ pub fn settings_window(
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
                     egui::Grid::new("settings")
-                .num_columns(2)
-                .spacing([GAP, 6.0])
-                .show(ui, |ui| {
-                    // How it looks, then how a recording opens, then memory.
-                    ui.label("Theme");
-                    ui.horizontal(|ui| {
-                        for theme in Theme::ALL {
-                            ui.radio_value(&mut settings.theme, theme, theme.label());
-                        }
-                    });
-                    ui.end_row();
-                    hint(ui, "System follows the system's light or dark mode.");
-                    if let Some(name) = SYSTEM_FONT_NAME {
-                        ui.label("Font");
-                        ui.checkbox(&mut settings.system_font, "System Font");
-                        ui.end_row();
-                        hint(ui, &format!("Use the system font ({name}) for all text."));
-                    }
-                    let label = ui.label(CHANNEL_TYPES);
-                    if ui.button(EDIT_TYPES).labelled_by(label.id).clicked() {
-                        *channel_types = true;
-                    }
-                    ui.end_row();
-                    hint(ui, "Color, DC removal, and scaling of each channel type.");
-                    let label = ui.label("Default Window");
-                    stepper(
-                        ui,
-                        &mut settings.default_window_s,
-                        DEFAULT_WINDOW_S,
-                        1.0,
-                        "s",
-                        "Default Window",
-                    )
-                    .labelled_by(label.id);
-                    ui.end_row();
-                    hint(ui, "Seconds shown when a recording opens.");
-                    ui.label("Scale");
-                    ui.checkbox(&mut settings.auto_scale_on_open, "Automatic on Opening");
-                    ui.end_row();
-                    hint(ui, "Fit the amplitudes to the first window of a recording.");
-                    ui.label("Minimap");
-                    ui.checkbox(&mut settings.minimap_signals, minimap::SHOW_SIGNALS);
-                    ui.end_row();
-                    hint(ui, "A coarse picture of each channel under the annotations.");
-                    budget_row(
-                        ui,
-                        "Tile Cache",
-                        "Memory for recently viewed data.",
-                        &mut settings.tile_cache_mb,
-                        &TILE_CACHE_MB,
-                        defaults.tile_cache_mb,
-                    );
-                    budget_row(
-                        ui,
-                        "GPU Memory",
-                        "Graphics memory for recently viewed data.",
-                        &mut settings.gpu_memory_mb,
-                        &GPU_MEMORY_MB,
-                        defaults.gpu_memory_mb,
-                    );
-                    if cache.exists() {
-                        let label = ui.label("Disk Cache");
-                        ui.horizontal(|ui| {
-                            let button = ui.add_enabled(
-                                cache.clearable(),
-                                egui::Button::new(CLEAR_CACHE),
-                            );
-                            if button.labelled_by(label.id).clicked() {
-                                *clear_cache = true;
+                        .num_columns(2)
+                        .spacing([GAP, 6.0])
+                        .show(ui, |ui| {
+                            // How it looks, then how a recording opens, then memory.
+                            ui.label("Theme");
+                            ui.horizontal(|ui| {
+                                for theme in Theme::ALL {
+                                    ui.radio_value(&mut settings.theme, theme, theme.label());
+                                }
+                            });
+                            ui.end_row();
+                            hint(ui, "System follows the system's light or dark mode.");
+                            if let Some(name) = SYSTEM_FONT_NAME {
+                                ui.label("Font");
+                                ui.checkbox(&mut settings.system_font, "System Font");
+                                ui.end_row();
+                                hint(ui, &format!("Use the system font ({name}) for all text."));
                             }
-                            ui.label(cache.text());
+                            let label = ui.label(CHANNEL_TYPES);
+                            if ui.button(EDIT_TYPES).labelled_by(label.id).clicked() {
+                                *channel_types = true;
+                            }
+                            ui.end_row();
+                            hint(ui, "Color, DC removal, and scaling of each channel type.");
+                            let label = ui.label("Default Window");
+                            stepper(
+                                ui,
+                                &mut settings.default_window_s,
+                                DEFAULT_WINDOW_S,
+                                1.0,
+                                "s",
+                                "Default Window",
+                            )
+                            .labelled_by(label.id);
+                            ui.end_row();
+                            hint(ui, "Seconds shown when a recording opens.");
+                            ui.label("Scale");
+                            ui.checkbox(&mut settings.auto_scale_on_open, "Automatic on Opening");
+                            ui.end_row();
+                            hint(ui, "Fit the amplitudes to the first window of a recording.");
+                            ui.label("Minimap");
+                            ui.checkbox(&mut settings.minimap_signals, minimap::SHOW_SIGNALS);
+                            ui.end_row();
+                            hint(
+                                ui,
+                                "A coarse picture of each channel under the annotations.",
+                            );
+                            budget_row(
+                                ui,
+                                "Tile Cache",
+                                "Memory for recently viewed data.",
+                                &mut settings.tile_cache_mb,
+                                &TILE_CACHE_MB,
+                                defaults.tile_cache_mb,
+                                megabytes_text,
+                            );
+                            budget_row(
+                                ui,
+                                "GPU Memory",
+                                "Graphics memory for recently viewed data.",
+                                &mut settings.gpu_memory_mb,
+                                &GPU_MEMORY_MB,
+                                defaults.gpu_memory_mb,
+                                megabytes_text,
+                            );
+                            if cache.exists() {
+                                let label = ui.label("Disk Cache");
+                                limit_menu(
+                                    ui,
+                                    label.id,
+                                    &mut settings.disk_cache_mb,
+                                    &DISK_CACHE_MB,
+                                    defaults.disk_cache_mb,
+                                    disk_cache_text,
+                                );
+                                ui.end_row();
+                                // What it holds, under its limit.
+                                ui.label("");
+                                ui.horizontal(|ui| {
+                                    let button = ui.add_enabled(
+                                        cache.clearable(),
+                                        egui::Button::new(CLEAR_CACHE),
+                                    );
+                                    if button.labelled_by(label.id).clicked() {
+                                        *clear_cache = true;
+                                    }
+                                    ui.label(cache.text());
+                                });
+                                ui.end_row();
+                                hint(ui, DISK_CACHE_HINT);
+                            }
+                            ui.label("Updates");
+                            ui.checkbox(&mut settings.check_updates, "Check at Startup");
+                            ui.end_row();
+                            hint(ui, "Look for a newer version on GitHub once a day.");
                         });
-                        ui.end_row();
-                        hint(
-                            ui,
-                            "Overviews that make recordings open faster (settings are kept).",
-                        );
-                    }
-                    ui.label("Updates");
-                    ui.checkbox(&mut settings.check_updates, "Check at Startup");
-                    ui.end_row();
-                    hint(ui, "Look for a newer version on GitHub once a day.");
-                });
                 });
             ui.add_space(6.0);
             if ui.button("Restore Defaults").clicked() {
@@ -194,30 +209,63 @@ fn content_width(ctx: &egui::Context) -> f32 {
     labels + GAP + VALUES_WIDTH
 }
 
-/// The values column's width: the longest hint (Disk Cache's, about 340 points in egui's
+/// The values column's width: the longest hint (Disk Cache's, about 320 points in egui's
 /// font) on one line, with room for wider fonts.
 const VALUES_WIDTH: f32 = 360.0;
 
-/// A label, a menu of the `offered` budgets for `mb` (`default` marked as such), and a hint
-/// below in the menu's column.
-fn budget_row(ui: &mut Ui, label: &str, hint: &str, mb: &mut u32, offered: &[u32], default: u32) {
+/// What the Disk Cache row's hint says.
+pub const DISK_CACHE_HINT: &str = "Overviews that make recordings open faster; Off keeps none.";
+
+/// A label, a menu of the `offered` budgets for `mb` (`default` marked as such), each shown
+/// as `text` gives it, and a hint below in the menu's column.
+fn budget_row(
+    ui: &mut Ui,
+    label: &str,
+    hint: &str,
+    mb: &mut u32,
+    offered: &[u32],
+    default: u32,
+    text: fn(u32) -> String,
+) {
     let label = ui.label(label);
-    egui::ComboBox::from_id_salt(label.id)
-        .selected_text(megabytes_text(*mb))
+    limit_menu(ui, label.id, mb, offered, default, text);
+    ui.end_row();
+    self::hint(ui, hint);
+}
+
+/// A menu of the `offered` budgets for `mb`, labeled by `label`, `default` marked as such,
+/// each shown as `text` gives it.
+fn limit_menu(
+    ui: &mut Ui,
+    label: egui::Id,
+    mb: &mut u32,
+    offered: &[u32],
+    default: u32,
+    text: fn(u32) -> String,
+) {
+    egui::ComboBox::from_id_salt(label)
+        .selected_text(text(*mb))
         .show_ui(ui, |ui| {
             for &o in offered {
-                let text = if o == default {
-                    format!("{} (Default)", megabytes_text(o))
+                let shown = if o == default {
+                    format!("{} (Default)", text(o))
                 } else {
-                    megabytes_text(o)
+                    text(o)
                 };
-                ui.selectable_value(mb, o, text);
+                ui.selectable_value(mb, o, shown);
             }
         })
         .response
-        .labelled_by(label.id);
-    ui.end_row();
-    self::hint(ui, hint);
+        .labelled_by(label);
+}
+
+/// The disk cache's limit as its menu shows it: "Off" for none, else as [`megabytes_text`].
+pub fn disk_cache_text(mb: u32) -> String {
+    if mb == 0 {
+        "Off".to_owned()
+    } else {
+        megabytes_text(mb)
+    }
 }
 
 /// A budget as the menus show it: in MB below a GB, else in GB.

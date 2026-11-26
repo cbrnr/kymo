@@ -3815,6 +3815,64 @@ fn settings_clear_the_disk_cache() {
     assert!(harness.query_by_label("Disk Cache").is_none());
 }
 
+/// The disk cache stays within the limit Settings sets: Off removes the caches of closed
+/// recordings at once, but never the open one's, which goes when another recording opens.
+#[test]
+fn settings_limit_the_disk_cache() {
+    let first = TempFile::preset("bdf+c-small");
+    let second = TempFile::preset("edf+d-mixed");
+    let dir = TempDir::new();
+    let hash = "0d5284d4f6dad0bd4380c50b1337de3dbb3982bdc8522b48e7e6ef04bebbaafd";
+    let other = dir.path().join(format!("{hash}.kymo-pyramid"));
+    std::fs::write(&other, vec![0u8; 3 << 20]).unwrap();
+    let foreign = dir.path().join("notes.txt");
+    std::fs::write(&foreign, b"mine").unwrap();
+    let path = first.path().to_owned();
+    let sidecars = dir.path().to_owned();
+    let size = egui::vec2(SIZE.x, 900.0);
+    let mut harness = Harness::builder().with_size(size).build_eframe(move |cc| {
+        KymoApp::new(
+            &cc.egui_ctx,
+            Gpu::none("no GPU in this test"),
+            Options {
+                sidecar_dir: Some(sidecars),
+                ..options()
+            },
+            Some(path),
+        )
+    });
+    ready(&mut harness);
+    step_until(&mut harness, "the sidecar", |app| {
+        app.viewer()
+            .is_some_and(|v| !v.status().right.contains("Building"))
+    });
+    harness.run_steps(4);
+    // Within the default limit, the other recording's cache stays.
+    assert!(other.exists());
+
+    choose(&mut harness, "Edit", "Settings");
+    harness.run_steps(10);
+    pick_budget(&mut harness, "Disk Cache", "Off");
+    assert_eq!(harness.state().settings().disk_cache_mb, 0);
+    step_until(&mut harness, "trimming", |_| !other.exists());
+    let open = viewer(&harness).sidecar_path().unwrap();
+    assert!(open.exists());
+    assert!(foreign.exists());
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+
+    let ctx = harness.ctx.clone();
+    harness.state_mut().open(&ctx, second.path().to_owned());
+    step_until(&mut harness, "the second recording", |app| {
+        app.viewer()
+            .is_some_and(|v| v.sidecar_path() != Some(open.clone()))
+    });
+    step_until(&mut harness, "trimming", |_| !open.exists());
+    assert!(viewer(&harness).sidecar_path().unwrap().exists());
+    assert!(foreign.exists());
+    drop(harness);
+}
+
 /// Settings → Font puts the system's font in front of egui's for text, where the platform
 /// has one (macOS, Windows), and takes it out again; off by default. Elsewhere there is no
 /// such setting. Widths measured once (the names column's, the channel list's columns) are

@@ -520,6 +520,7 @@ fn open_complete(
     }
     // SAFETY: as above.
     let changes = parse_trailer(unsafe { map.read(trailer, len - trailer) }, layouts)?;
+    crate::cache::touch(path);
     Some((map, changes))
 }
 

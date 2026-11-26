@@ -5,10 +5,12 @@ use std::collections::HashMap;
 use eframe::Storage;
 use eframe::egui::Color32;
 use kymo::annotations::AnnotationColors;
-use kymo::settings::{DEFAULT_WINDOW_S, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme, nearest};
+use kymo::settings::{
+    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme, nearest,
+};
 use kymo::settings::{load_annotation_colors, save_annotation_colors};
 use kymo::types::TypeSettings;
-use kymo::ui::settings::megabytes_text;
+use kymo::ui::settings::{disk_cache_text, megabytes_text};
 use kymo::update::UpdateState;
 use kymo_core::ChannelKind;
 use proptest::prelude::*;
@@ -38,6 +40,7 @@ fn defaults_without_storage_or_values() {
     let defaults = Settings::default();
     assert_eq!(defaults.tile_cache_mb, 256);
     assert_eq!(defaults.gpu_memory_mb, 256);
+    assert_eq!(defaults.disk_cache_mb, 5120);
     assert_eq!(defaults.default_window_s, 20.0);
     assert!(!defaults.antialias);
     assert!(defaults.auto_scale_on_open);
@@ -77,6 +80,7 @@ fn saved_settings_read_back() {
     let settings = Settings {
         tile_cache_mb: 1024,
         gpu_memory_mb: 512,
+        disk_cache_mb: 0,
         default_window_s: 7.5,
         antialias: true,
         scale_bars: false,
@@ -132,6 +136,15 @@ fn saved_settings_read_back() {
     }
     assert_eq!(settings.tile_cache_bytes(), 1024 << 20);
     assert_eq!(settings.gpu_memory_bytes(), 512 << 20);
+    assert_eq!(settings.disk_cache_bytes(), 0);
+    assert_eq!(
+        Settings {
+            disk_cache_mb: 51200,
+            ..Settings::default()
+        }
+        .disk_cache_bytes(),
+        50 << 30
+    );
 }
 
 #[test]
@@ -139,6 +152,7 @@ fn unreadable_values_are_defaults_and_others_kept() {
     let saved = Settings {
         tile_cache_mb: 512,
         gpu_memory_mb: 128,
+        disk_cache_mb: 1024,
         default_window_s: 5.0,
         antialias: true,
         scale_bars: false,
@@ -169,6 +183,13 @@ fn unreadable_values_are_defaults_and_others_kept() {
             "kymo.gpu_memory_mb",
             Settings {
                 gpu_memory_mb: defaults.gpu_memory_mb,
+                ..saved.clone()
+            },
+        ),
+        (
+            "kymo.disk_cache_mb",
+            Settings {
+                disk_cache_mb: defaults.disk_cache_mb,
                 ..saved.clone()
             },
         ),
@@ -275,6 +296,7 @@ fn values_out_of_range_are_clamped() {
     Settings {
         tile_cache_mb: 1,
         gpu_memory_mb: u32::MAX,
+        disk_cache_mb: u32::MAX,
         default_window_s: 1e9,
         antialias: false,
         scale_bars: true,
@@ -292,6 +314,7 @@ fn values_out_of_range_are_clamped() {
     let loaded = Settings::load(Some(&storage));
     assert_eq!(loaded.tile_cache_mb, TILE_CACHE_MB[0]);
     assert_eq!(loaded.gpu_memory_mb, *GPU_MEMORY_MB.last().unwrap());
+    assert_eq!(loaded.disk_cache_mb, *DISK_CACHE_MB.last().unwrap());
     assert_eq!(loaded.default_window_s, *DEFAULT_WINDOW_S.end());
     assert_eq!(loaded.minimap_height, kymo::ui::minimap::MIN_HEIGHT);
     storage.set_string("kymo.default_window_s", "-3".into());
@@ -334,6 +357,30 @@ fn budgets_snap_to_the_nearest_offered() {
     }
     // As near either way: the smaller.
     assert_eq!(nearest(4, &[2, 8]), 2);
+}
+
+/// The disk cache's limit: Off stays off, however near another size is to nothing, and
+/// any other size is the nearest one offered; the default is offered.
+#[test]
+fn the_disk_cache_limit_snaps_but_off_stays_off() {
+    assert!(DISK_CACHE_MB.contains(&Settings::default().disk_cache_mb));
+    for (saved, limit) in [
+        ("0", 0),
+        ("1", 1024),
+        ("3000", 2048),
+        ("4000", 5120),
+        ("100000", 51200),
+    ] {
+        let mut storage = Memory::default();
+        storage.set_string("kymo.disk_cache_mb", saved.into());
+        assert_eq!(
+            Settings::load(Some(&storage)).disk_cache_mb,
+            limit,
+            "{saved}"
+        );
+    }
+    assert_eq!(disk_cache_text(0), "Off");
+    assert_eq!(disk_cache_text(5120), "5 GB");
 }
 
 #[test]

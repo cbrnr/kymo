@@ -1,5 +1,5 @@
-//! The disk cache as Settings shows it: its size, measured and cleared on a background
-//! thread, so the UI thread never waits on the disk.
+//! The disk cache as Settings shows it: its size, measured, cleared and trimmed to its limit
+//! on a background thread, so the UI thread never waits on the disk.
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
@@ -19,6 +19,7 @@ pub struct DiskCache {
 enum Status {
     /// Not measured since Settings last opened.
     Unknown,
+    /// Being measured, or trimmed to its limit (which measures it too).
     Measuring,
     Clearing,
     /// Its size, and what the last clearing did.
@@ -27,6 +28,15 @@ enum Status {
 }
 
 type Outcome = Result<(Usage, Option<Cleared>), String>;
+
+/// What a background thread does to the cache before measuring it.
+#[derive(Clone, Copy)]
+enum Work {
+    Measure,
+    Clear,
+    /// Trims it to this many bytes.
+    Trim(u64),
+}
 
 impl DiskCache {
     /// The cache in `dir`; `None` keeps pyramids in memory, with no cache to show.
@@ -60,32 +70,58 @@ impl DiskCache {
         if !settings_open {
             self.status = Status::Unknown;
         } else if self.status == Status::Unknown {
-            self.run(Status::Measuring, Vec::new(), repaint);
+            self.run(Work::Measure, Vec::new(), repaint);
         }
     }
 
     /// Clears the cache but for `keep` (the open recording's sidecar), then measures it.
     pub fn clear(&mut self, keep: Vec<PathBuf>, repaint: impl Fn() + Send + 'static) {
         if !self.busy() {
-            self.run(Status::Clearing, keep, repaint);
+            self.run(Work::Clear, keep, repaint);
         }
     }
 
-    fn run(&mut self, status: Status, keep: Vec<PathBuf>, repaint: impl Fn() + Send + 'static) {
+    /// Trims the cache to `limit` bytes but for `keep` (the open recording's sidecar; see
+    /// [`cache::trim`]), then measures it; returns whether it started, as it waits for
+    /// what is under way.
+    pub fn trim(
+        &mut self,
+        limit: u64,
+        keep: Vec<PathBuf>,
+        repaint: impl Fn() + Send + 'static,
+    ) -> bool {
+        if self.busy() {
+            return false;
+        }
+        self.run(Work::Trim(limit), keep, repaint);
+        true
+    }
+
+    fn run(&mut self, work: Work, keep: Vec<PathBuf>, repaint: impl Fn() + Send + 'static) {
         let Some(dir) = self.dir.clone() else {
             return;
         };
-        let clear = status == Status::Clearing;
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let work = || -> std::io::Result<(Usage, Option<Cleared>)> {
-                let cleared = clear.then(|| cache::clear(&dir, &keep)).transpose()?;
+            let run = || -> std::io::Result<(Usage, Option<Cleared>)> {
+                let cleared = match work {
+                    Work::Measure => None,
+                    Work::Clear => Some(cache::clear(&dir, &keep)?),
+                    // What trimming removed isn't shown, as the user didn't ask for it.
+                    Work::Trim(limit) => {
+                        cache::trim(&dir, limit, &keep)?;
+                        None
+                    }
+                };
                 Ok((cache::usage(&dir)?, cleared))
             };
-            let _ = tx.send(work().map_err(|e| format!("{}: {e}", dir.display())));
+            let _ = tx.send(run().map_err(|e| format!("{}: {e}", dir.display())));
             repaint();
         });
-        self.status = status;
+        self.status = match work {
+            Work::Measure | Work::Trim(_) => Status::Measuring,
+            Work::Clear => Status::Clearing,
+        };
         self.pending = Some(rx);
     }
 
