@@ -4,7 +4,7 @@
 ### 🌀 Changed
 - Rework channel selection in the sidebar, with a bar below the list that acts on the selected channels ([#16](https://github.com/cbrnr/kymo/pull/16) by [Clemens Brunner](https://github.com/cbrnr)).
 - Give windows and dialogs the same, roomier padding on all four sides, and the update, unsaved changes and notice dialogs a title bar like the other windows ([#20](https://github.com/cbrnr/kymo/pull/20) by [Clemens Brunner](https://github.com/cbrnr)).
-- Give the channel list the traces' scrollbar, always visible while the list scrolls, and narrow the scrollbars' thumbs until the pointer is on them ([#24](https://github.com/cbrnr/kymo/pull/24) by [Clemens Brunner](https://github.com/cbrnr)).
+- Always show the channel list's scrollbar while it scrolls, like the traces' scrollbars ([#24](https://github.com/cbrnr/kymo/pull/24) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🔧 Fixed
 - Stop the channel names column from being dragged wider than its longest name needs ([#15](https://github.com/cbrnr/kymo/pull/15) by [Clemens Brunner](https://github.com/cbrnr)).
