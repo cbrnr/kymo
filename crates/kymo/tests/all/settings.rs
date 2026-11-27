@@ -404,7 +404,7 @@ fn the_disk_cache_off_warning_gives_the_memory_overviews_take() {
     let warning = disk_cache_off_warning(Some(5_090_922_512));
     assert!(warning.contains("(4.7 GB for this recording)"), "{warning}");
     let warning = disk_cache_off_warning(Some(13_020_880));
-    assert!(warning.contains("(13 MB for this recording)"), "{warning}");
+    assert!(warning.contains("(12 MB for this recording)"), "{warning}");
     let warning = disk_cache_off_warning(None);
     assert!(warning.contains("(about 10% of"), "{warning}");
 }

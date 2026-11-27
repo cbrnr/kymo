@@ -3792,7 +3792,8 @@ fn settings_clear_the_disk_cache() {
     harness
         .get_by_role_and_label(egui::accesskit::Role::Button, "Disk Cache")
         .click();
-    step_until_label(&mut harness, "3 MB in 1 file cleared, 1 file in use kept");
+    step_until_label(&mut harness, " in 1 file");
+    assert!(harness.query_by_label_contains("cleared").is_none());
     assert!(!other.exists());
     assert!(open.exists());
     assert!(foreign.exists());
@@ -3804,7 +3805,6 @@ fn settings_clear_the_disk_cache() {
     assert!(!harness.state().settings_open());
     choose(&mut harness, "Edit", "Settings");
     step_until_label(&mut harness, " in 1 file");
-    assert!(harness.query_by_label_contains("cleared").is_none());
     drop(harness);
 
     let mut harness = window(file.path());
@@ -3842,9 +3842,19 @@ fn settings_limit_the_disk_cache() {
     choose(&mut harness, "Edit", "Settings");
     harness.run_steps(10);
     harness.get_by_label(DISK_CACHE_HINT);
+    step_until_label(&mut harness, " in 2 files");
     pick_budget(&mut harness, "Disk Cache", "Off");
     assert_eq!(harness.state().settings().disk_cache_mb, OFF);
-    step_until(&mut harness, "trimming", |_| !other.exists());
+    // Trimming to the new limit shows the size it knows until it has the new one.
+    for _ in 0..200 {
+        assert!(harness.query_by_label("Measuring\u{2026}").is_none());
+        harness.step();
+        if harness.query_by_label_contains(" in 1 file").is_some() {
+            break;
+        }
+    }
+    harness.get_by_label_contains(" in 1 file");
+    assert!(!other.exists());
     let open = viewer(&harness).sidecar_path().unwrap();
     assert!(open.exists());
     assert!(foreign.exists());

@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver};
 
-use kymo_core::cache::{self, Cleared, Usage};
+use kymo_core::cache::{self, Usage};
 
 use crate::document::plural;
 
@@ -13,21 +13,25 @@ pub struct DiskCache {
     dir: Option<PathBuf>,
     status: Status,
     pending: Option<Receiver<Outcome>>,
+    /// A clearing asked for while something else was under way, with what it keeps.
+    clear_next: Option<Vec<PathBuf>>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Status {
     /// Not measured since Settings last opened.
     Unknown,
-    /// Being measured, or trimmed to its limit (which measures it too).
+    /// Being measured for the first time since Settings opened. Measured again, or trimmed
+    /// to its limit (which measures it too), it stays [`Status::Known`] meanwhile, so its
+    /// size doesn't flicker.
     Measuring,
     Clearing,
-    /// Its size, and what the last clearing did.
-    Known(Usage, Option<Cleared>),
+    /// Its size.
+    Known(Usage),
     Failed(String),
 }
 
-type Outcome = Result<(Usage, Option<Cleared>), String>;
+type Outcome = Result<Usage, String>;
 
 /// What a background thread does to the cache before measuring it.
 #[derive(Clone, Copy)]
@@ -45,6 +49,7 @@ impl DiskCache {
             dir,
             status: Status::Unknown,
             pending: None,
+            clear_next: None,
         }
     }
 
@@ -60,11 +65,15 @@ impl DiskCache {
         if let Some(outcome) = self.pending.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.pending = None;
             self.status = match outcome {
-                Ok((usage, cleared)) => Status::Known(usage, cleared),
+                Ok(usage) => Status::Known(usage),
                 Err(error) => Status::Failed(error),
             };
         }
         if self.pending.is_some() {
+            return;
+        }
+        if let Some(keep) = self.clear_next.take() {
+            self.run(Work::Clear, keep, repaint);
             return;
         }
         if !settings_open {
@@ -74,9 +83,12 @@ impl DiskCache {
         }
     }
 
-    /// Clears the cache but for `keep` (the open recording's sidecar), then measures it.
+    /// Clears the cache but for `keep` (the open recording's sidecar), then measures it; once
+    /// what is under way has finished, if anything is.
     pub fn clear(&mut self, keep: Vec<PathBuf>, repaint: impl Fn() + Send + 'static) {
-        if !self.busy() {
+        if self.busy() {
+            self.clear_next = Some(keep);
+        } else {
             self.run(Work::Clear, keep, repaint);
         }
     }
@@ -103,24 +115,25 @@ impl DiskCache {
         };
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let run = || -> std::io::Result<(Usage, Option<Cleared>)> {
-                let cleared = match work {
-                    Work::Measure => None,
-                    Work::Clear => Some(cache::clear(&dir, &keep)?),
-                    // What trimming removed isn't shown, as the user didn't ask for it.
+            let run = || -> std::io::Result<Usage> {
+                match work {
+                    Work::Measure => {}
+                    Work::Clear => {
+                        cache::clear(&dir, &keep)?;
+                    }
                     Work::Trim(limit) => {
                         cache::trim(&dir, limit, &keep)?;
-                        None
                     }
-                };
-                Ok((cache::usage(&dir)?, cleared))
+                }
+                cache::usage(&dir)
             };
             let _ = tx.send(run().map_err(|e| format!("{}: {e}", dir.display())));
             repaint();
         });
-        self.status = match work {
-            Work::Measure | Work::Trim(_) => Status::Measuring,
-            Work::Clear => Status::Clearing,
+        self.status = match (work, &self.status) {
+            (Work::Clear, _) => Status::Clearing,
+            (_, Status::Known(_)) => self.status.clone(),
+            _ => Status::Measuring,
         };
         self.pending = Some(rx);
     }
@@ -130,31 +143,20 @@ impl DiskCache {
         self.pending.is_some()
     }
 
-    /// What Settings shows: "788 MB in 107 files", and after clearing what it did.
+    /// What Settings shows: "788 MB in 107 files".
     pub fn text(&self) -> String {
         match &self.status {
             Status::Unknown | Status::Measuring => "Measuring\u{2026}".to_owned(),
             Status::Clearing => "Clearing\u{2026}".to_owned(),
             Status::Failed(error) => error.clone(),
-            Status::Known(usage, cleared) => {
-                let size = describe(*usage);
-                match cleared {
-                    None => size,
-                    Some(c) if c.kept == 0 => format!("{size}, {} cleared", describe(c.removed)),
-                    Some(c) => format!(
-                        "{size}, {} cleared, {} file{} in use kept",
-                        describe(c.removed),
-                        c.kept,
-                        plural(c.kept)
-                    ),
-                }
-            }
+            Status::Known(usage) => describe(*usage),
         }
     }
 
-    /// Whether Clear would remove anything: the cache was measured and holds files.
+    /// Whether Clear would remove anything: the cache was measured and holds files, and no
+    /// clearing is under way or asked for.
     pub fn clearable(&self) -> bool {
-        !self.busy() && matches!(self.status, Status::Known(usage, _) if usage.files > 0)
+        self.clear_next.is_none() && matches!(self.status, Status::Known(usage) if usage.files > 0)
     }
 }
 
@@ -208,29 +210,15 @@ mod tests {
 
     #[test]
     fn texts() {
-        let usage = |files| Usage {
-            bytes: 5 << 20,
-            files,
-        };
-        let known = |cleared| DiskCache {
+        let known = DiskCache {
             dir: None,
-            status: Status::Known(usage(1), cleared),
+            status: Status::Known(Usage {
+                bytes: 5 << 20,
+                files: 1,
+            }),
             pending: None,
+            clear_next: None,
         };
-        assert_eq!(known(None).text(), "5 MB in 1 file");
-        let cleared = |kept| {
-            Some(Cleared {
-                removed: usage(3),
-                kept,
-            })
-        };
-        assert_eq!(
-            known(cleared(0)).text(),
-            "5 MB in 1 file, 5 MB in 3 files cleared"
-        );
-        assert_eq!(
-            known(cleared(2)).text(),
-            "5 MB in 1 file, 5 MB in 3 files cleared, 2 files in use kept"
-        );
+        assert_eq!(known.text(), "5 MB in 1 file");
     }
 }

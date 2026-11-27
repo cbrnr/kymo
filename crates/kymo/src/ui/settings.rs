@@ -2,7 +2,7 @@
 
 use eframe::egui::{self, Ui};
 
-use crate::disk_cache::DiskCache;
+use crate::disk_cache::{DiskCache, format_bytes};
 use crate::settings::{
     DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, OFF, SESSION, Settings, TILE_CACHE_MB, Theme,
     UNLIMITED,
@@ -143,8 +143,7 @@ pub fn settings_window(
                                     if button.labelled_by(label.id).clicked() {
                                         *clear_cache = true;
                                     }
-                                    // What clearing did can run long.
-                                    ui.add(egui::Label::new(cache.text()).wrap());
+                                    ui.label(cache.text());
                                 });
                                 ui.end_row();
                                 match settings.disk_cache_mb {
@@ -229,20 +228,10 @@ pub const DISK_CACHE_SESSION_HINT: &str =
 /// overviews take (`overview` bytes), or about how much they take without one.
 pub fn disk_cache_off_warning(overview: Option<u64>) -> String {
     let size = match overview {
-        Some(bytes) => format!("{} for this recording", bytes_text(bytes)),
+        Some(bytes) => format!("{} for this recording", format_bytes(bytes)),
         None => "about 10% of each recording".to_owned(),
     };
     format!("Overviews use extra memory ({size}).")
-}
-
-/// A size in bytes as the warnings show it: in MB below a GB, else in GB with a decimal.
-pub fn bytes_text(bytes: u64) -> String {
-    let mb = bytes as f64 / f64::from(1u32 << 20);
-    if mb >= 1024.0 {
-        format!("{:.1} GB", mb / 1024.0)
-    } else {
-        format!("{} MB", mb.ceil() as u64)
-    }
 }
 
 /// A label, a menu of the `offered` budgets for `mb` (`default` marked as such), each shown
