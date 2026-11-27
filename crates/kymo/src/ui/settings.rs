@@ -126,18 +126,16 @@ pub fn settings_window(
                             );
                             if cache.exists() {
                                 let label = ui.label("Disk Cache");
-                                limit_menu(
-                                    ui,
-                                    label.id,
-                                    &mut settings.disk_cache_mb,
-                                    &DISK_CACHE_MB,
-                                    defaults.disk_cache_mb,
-                                    disk_cache_text,
-                                );
-                                ui.end_row();
-                                // What it holds, under its limit.
-                                ui.label("");
+                                // Its limit, then what it holds.
                                 ui.horizontal(|ui| {
+                                    limit_menu(
+                                        ui,
+                                        label.id,
+                                        &mut settings.disk_cache_mb,
+                                        &DISK_CACHE_MB,
+                                        defaults.disk_cache_mb,
+                                        disk_cache_text,
+                                    );
                                     let button = ui.add_enabled(
                                         cache.clearable(),
                                         egui::Button::new(CLEAR_CACHE),
@@ -145,7 +143,8 @@ pub fn settings_window(
                                     if button.labelled_by(label.id).clicked() {
                                         *clear_cache = true;
                                     }
-                                    ui.label(cache.text());
+                                    // What clearing did can run long.
+                                    ui.add(egui::Label::new(cache.text()).wrap());
                                 });
                                 ui.end_row();
                                 match settings.disk_cache_mb {
@@ -318,7 +317,8 @@ fn hint(ui: &mut Ui, text: &str) {
     ui.end_row();
 }
 
-/// A warning below a row, in the value's column: a hint in the warning color.
+/// A warning below a row, in the value's column: a hint in the warning color, as the
+/// sidebar's warnings are.
 fn warning(ui: &mut Ui, text: &str) {
     ui.label("");
     let color = ui.visuals().warn_fg_color;

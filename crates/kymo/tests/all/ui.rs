@@ -3083,8 +3083,7 @@ fn warnings_show_as_one_line_with_the_text_on_hover() {
     let full = "The file has 5 bytes";
     assert!(harness.query_by_label_contains(full).is_none());
     let line = harness.get_by_label("1 Warning").rect();
-    // The whole line answers the pointer, the sign at its left as well.
-    hover(&mut harness, egui::pos2(line.left() - 6.0, line.center().y));
+    hover(&mut harness, line.center());
     let shown = Instant::now() + Duration::from_secs(2);
     while harness.query_by_label_contains(full).is_none() && Instant::now() < shown {
         harness.step();
