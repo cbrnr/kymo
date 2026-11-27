@@ -82,7 +82,7 @@ gh api repos/cbrnr/kymo/actions/artifacts/ID/zip > NAME   # fetches one as is (`
 - Every change goes through a pull request, including the maintainer's own and release commits: work on a branch off `main`, never commit or push to `main` directly.
 - Work in small, reviewable steps; each ends with passing tests and a commit.
 - Keep commit messages short: a subject line of about 72 characters at most saying what changed; details, if needed, in a brief body.
-- A user-visible change adds one line to `CHANGELOG.md` under `[UNRELEASED]` (section, imperative sentence, its pull request and author) and updates that heading's date.
+- A user-visible change adds one line to `CHANGELOG.md` under `[UNRELEASED]` (section, a short imperative sentence saying what changed for the user, without details, its pull request and author) and updates that heading's date.
 - Never add a `Co-Authored-By` line or any other AI attribution, anywhere: commits, PRs, issues, comments.
 - Before a larger step, propose a short plan and wait for approval.
 - When unsure about a requirement, ask rather than guess.
