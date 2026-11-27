@@ -6,12 +6,12 @@ use eframe::Storage;
 use eframe::egui::Color32;
 use kymo::annotations::AnnotationColors;
 use kymo::settings::{
-    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, Settings, TILE_CACHE_MB, Theme, UNLIMITED,
-    nearest,
+    DEFAULT_WINDOW_S, DISK_CACHE_MB, GPU_MEMORY_MB, OFF, SESSION, Settings, TILE_CACHE_MB, Theme,
+    UNLIMITED, nearest,
 };
 use kymo::settings::{load_annotation_colors, save_annotation_colors};
 use kymo::types::TypeSettings;
-use kymo::ui::settings::{disk_cache_text, megabytes_text};
+use kymo::ui::settings::{disk_cache_off_warning, disk_cache_text, megabytes_text};
 use kymo::update::UpdateState;
 use kymo_core::ChannelKind;
 use proptest::prelude::*;
@@ -137,16 +137,23 @@ fn saved_settings_read_back() {
     }
     assert_eq!(settings.tile_cache_bytes(), 1024 << 20);
     assert_eq!(settings.gpu_memory_bytes(), 512 << 20);
-    assert_eq!(settings.disk_cache_bytes(), 0);
-    let limit = |disk_cache_mb| {
-        Settings {
+    assert!(settings.disk_cache_off());
+    // While Kymo runs and once it has quit.
+    let limits = |disk_cache_mb| {
+        let settings = Settings {
             disk_cache_mb,
             ..Settings::default()
-        }
-        .disk_cache_bytes()
+        };
+        (
+            settings.disk_cache_bytes(),
+            settings.disk_cache_bytes_at_exit(),
+        )
     };
-    assert_eq!(limit(10240), 10 << 30);
-    assert_eq!(limit(UNLIMITED), u64::MAX);
+    assert_eq!(limits(OFF), (0, 0));
+    assert_eq!(limits(SESSION), (u64::MAX, 0));
+    assert_eq!(limits(10240), (10 << 30, 10 << 30));
+    assert_eq!(limits(UNLIMITED), (u64::MAX, u64::MAX));
+    assert!(!Settings::default().disk_cache_off());
 }
 
 #[test]
@@ -361,18 +368,19 @@ fn budgets_snap_to_the_nearest_offered() {
     assert_eq!(nearest(4, &[2, 8]), 2);
 }
 
-/// The disk cache's limit: Off and Unlimited stay so, however near a size is to them, and
-/// any other size is the nearest one offered; the default is offered.
+/// The disk cache's limit: Off, Session and Unlimited stay so, however near a size is to
+/// them, and any other size is the nearest one offered; the default is offered.
 #[test]
-fn the_disk_cache_limit_snaps_but_off_and_unlimited_stay() {
+fn the_disk_cache_limit_snaps_but_off_session_and_unlimited_stay() {
     assert!(DISK_CACHE_MB.contains(&Settings::default().disk_cache_mb));
     for (saved, limit) in [
-        ("0", 0),
+        ("0", OFF),
         ("1", 1024),
         ("3000", 2048),
         ("4000", 5120),
         ("100000", 10240),
-        (&*(UNLIMITED - 1).to_string(), 10240),
+        (&*(SESSION - 1).to_string(), 10240),
+        (&*SESSION.to_string(), SESSION),
         (&*UNLIMITED.to_string(), UNLIMITED),
     ] {
         let mut storage = Memory::default();
@@ -383,9 +391,22 @@ fn the_disk_cache_limit_snaps_but_off_and_unlimited_stay() {
             "{saved}"
         );
     }
-    assert_eq!(disk_cache_text(0), "Off");
+    assert_eq!(disk_cache_text(OFF), "Off");
+    assert_eq!(disk_cache_text(SESSION), "Session");
     assert_eq!(disk_cache_text(5120), "5 GB");
     assert_eq!(disk_cache_text(UNLIMITED), "Unlimited");
+}
+
+/// With the disk cache off, the warning gives the open recording's overviews in memory, or
+/// a tenth of a recording's size without one.
+#[test]
+fn the_disk_cache_off_warning_gives_the_memory_overviews_take() {
+    let warning = disk_cache_off_warning(Some(5_090_922_512));
+    assert!(warning.contains("(4.7 GB for this recording)"), "{warning}");
+    let warning = disk_cache_off_warning(Some(13_020_880));
+    assert!(warning.contains("(13 MB for this recording)"), "{warning}");
+    let warning = disk_cache_off_warning(None);
+    assert!(warning.contains("(about a tenth of"), "{warning}");
 }
 
 #[test]

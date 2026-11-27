@@ -228,3 +228,19 @@ fn opening_a_sidecar_counts_as_a_use() {
     assert!(a_path.exists());
     assert!(!b_path.exists());
 }
+
+/// What the pyramids of a recording take in memory is what its sidecar holds, but for its
+/// header and the stim channels' changes.
+#[test]
+fn the_pyramids_size_is_the_sidecars() {
+    for preset in ["bdf+c-small", "edf+d-mixed"] {
+        let (_file, rec) = generated(preset);
+        let dir = TempDir::new();
+        let sidecar = Sidecar::open_or_create(dir.path(), &rec).unwrap();
+        assert!(sidecar.build(&rec).unwrap());
+        let len = std::fs::metadata(sidecar.path()).unwrap().len();
+        let bytes = kymo_core::pyramid::pyramid_bytes(&rec);
+        assert!(bytes > 0 && bytes < len, "{preset}: {bytes} of {len}");
+        assert!(len - bytes < 64 << 10, "{preset}: {bytes} of {len}");
+    }
+}

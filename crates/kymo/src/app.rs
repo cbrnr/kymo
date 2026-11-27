@@ -667,9 +667,13 @@ impl KymoApp {
         &self.title
     }
 
-    /// Opens `path` on a background thread, with its tile service.
+    /// Opens `path` on a background thread, with its tile service. With the disk cache off,
+    /// its pyramids and the reader's scratch files are kept in memory.
     pub fn open(&mut self, ctx: &egui::Context, path: PathBuf) {
-        let store = match &self.options.sidecar_dir {
+        let dir = (!self.options.settings.disk_cache_off())
+            .then(|| self.options.sidecar_dir.clone())
+            .flatten();
+        let store = match &dir {
             Some(dir) => PyramidStore::Sidecar { dir: dir.clone() },
             None => PyramidStore::Memory,
         };
@@ -678,7 +682,7 @@ impl KymoApp {
         let mut service_options = ServiceOptions::new(store);
         service_options.cache_budget = self.options.settings.tile_cache_bytes();
         let open = move |path: &Path| -> Result<Opened> {
-            let document = document::open(path)?;
+            let document = document::open_with(path, dir.as_deref())?;
             let service =
                 TileService::new(document.recording.clone(), service_options, move || {
                     tiles.request_repaint()
@@ -690,7 +694,8 @@ impl KymoApp {
         }));
     }
 
-    /// Keeps the disk cache within its limit: trims it at startup, when the open
+    /// Keeps the disk cache within its limit: trims it at startup (to what it may hold once
+    /// Kymo has quit, which removes what a session that crashed left behind), when the open
     /// recording's sidecar changes (another recording opens, the open one closes or its
     /// sidecar is complete) and when the limit does. Not while a recording opens, whose
     /// sidecar isn't known yet and must stay, nor while the cache is measured or cleared,
@@ -699,10 +704,13 @@ impl KymoApp {
         if matches!(self.state, State::Loading(_)) {
             return;
         }
-        let now = (
-            self.viewer().and_then(Viewer::sidecar_path),
-            self.options.settings.disk_cache_bytes(),
-        );
+        let settings = &self.options.settings;
+        let limit = if self.trimmed.is_none() {
+            settings.disk_cache_bytes_at_exit()
+        } else {
+            settings.disk_cache_bytes()
+        };
+        let now = (self.viewer().and_then(Viewer::sidecar_path), limit);
         if self.trimmed.as_ref() == Some(&now) {
             return;
         }
@@ -716,14 +724,30 @@ impl KymoApp {
         }
     }
 
-    /// Closes the recording and trims the disk cache to its limit, keeping nothing open,
-    /// so a limit of 0 leaves no cache of it behind. On quitting, on the UI thread, as
-    /// there are no frames left to wait in.
+    /// Closes the recording and trims the disk cache to what it may hold once Kymo has quit,
+    /// keeping nothing open, so Off and Session leave no cache behind. On quitting, on the
+    /// UI thread, as there are no frames left to wait in.
     fn close_for_exit(&mut self) {
         self.state = State::Empty;
         if let Some(dir) = &self.options.sidecar_dir {
-            let _ = kymo_core::cache::trim(dir, self.options.settings.disk_cache_bytes(), &[]);
+            let limit = self.options.settings.disk_cache_bytes_at_exit();
+            let _ = kymo_core::cache::trim(dir, limit, &[]);
         }
+    }
+
+    /// The memory the open recording's overviews take when kept in memory, as with the disk
+    /// cache off: its pyramids and the time tables of grids on their own time stamps.
+    fn overview_bytes(&self) -> Option<u64> {
+        let recording = &self.viewer()?.document().recording;
+        let times: u64 = recording
+            .grids()
+            .iter()
+            .filter_map(|grid| match grid.timebase() {
+                kymo_core::Timebase::Irregular { times, .. } => Some(times.size_bytes()),
+                _ => None,
+            })
+            .sum();
+        Some(kymo_core::pyramid::pyramid_bytes(recording) + times)
     }
 
     /// One frame: picks up a finished open, handles keys, and draws the window.
@@ -809,12 +833,14 @@ impl KymoApp {
             .follow(self.settings_open, move || repaint.request_repaint());
         let mut settings = self.options.settings.clone();
         let mut clear_cache = false;
+        let overview = self.settings_open.then(|| self.overview_bytes()).flatten();
         if settings_window(
             &ctx,
             &mut self.settings_open,
             &mut settings,
             &mut self.channel_types_open,
             &self.disk_cache,
+            overview,
             &mut clear_cache,
         ) {
             self.set_settings(settings);

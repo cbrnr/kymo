@@ -1,8 +1,8 @@
 # Changelog
 
-## [UNRELEASED] · 2026-11-25
+## [UNRELEASED] · 2026-11-27
 ### ✨ Added
-- Limit the disk cache in Settings (5 GB by default, or unlimited), removing the overviews of the recordings used longest ago beyond it, or keep none of closed recordings with Off ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
+- Limit the disk cache in Settings (5 GB by default, or unlimited), removing the overviews of the recordings used longest ago beyond it, keep them only until Kymo quits with Session, or keep overviews in memory and write nothing with Off ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🌀 Changed
 - Rework channel selection in the sidebar, with a bar below the list that acts on the selected channels ([#16](https://github.com/cbrnr/kymo/pull/16) by [Clemens Brunner](https://github.com/cbrnr)).

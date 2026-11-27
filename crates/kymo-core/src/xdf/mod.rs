@@ -42,7 +42,7 @@ mod xml;
 
 use crate::ModelError;
 
-pub use reader::open;
+pub use reader::{open, open_with};
 
 /// The file is malformed, or holds nothing kymo shows.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]

@@ -99,6 +99,11 @@ impl TimeTable {
         Self::writer_in(&dir, len)
     }
 
+    /// A writer of a table of `len` slots kept in memory, which writes nothing to disk.
+    pub fn writer_in_memory(len: u64) -> TimeTableWriter {
+        TimeTableWriter::new(Storage::memory(len), len)
+    }
+
     /// [`writer`](Self::writer) into `dir`.
     pub fn writer_in(dir: &Path, len: u64) -> TimeTableWriter {
         let storage = match scratch_map(dir, size_bytes(len)) {
@@ -111,6 +116,11 @@ impl TimeTable {
     /// Number of slots.
     pub fn len(&self) -> u64 {
         self.len
+    }
+
+    /// The bytes the table takes, in memory or in its file.
+    pub fn size_bytes(&self) -> u64 {
+        size_bytes(self.len) as u64
     }
 
     pub fn is_empty(&self) -> bool {

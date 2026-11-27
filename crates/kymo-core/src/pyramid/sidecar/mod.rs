@@ -128,6 +128,13 @@ fn layout(grids: &[Grid]) -> (Vec<GridLayout>, usize, u64) {
     (layouts, header_len, cursor)
 }
 
+/// The bytes of the envelopes and block sums of every grid of `recording`: its sidecar
+/// without header and trailer, about what its pyramids take in memory.
+pub fn pyramid_bytes(recording: &Recording) -> u64 {
+    let (_, header_len, total) = layout(recording.grids());
+    total - header_len as u64
+}
+
 /// The header a complete sidecar with this key and layout has.
 fn header(key: &blake3::Hash, layouts: &[GridLayout], header_len: usize, total: u64) -> Vec<u8> {
     let mut h = vec![0u8; header_len];

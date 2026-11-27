@@ -27,7 +27,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 pub use build::PyramidBuilder;
-pub use sidecar::{Sidecar, SidecarError};
+pub use sidecar::{Sidecar, SidecarError, pyramid_bytes};
 pub use spread::Spread;
 
 use crate::stim::{Change, StimChanges};

@@ -20,8 +20,15 @@ pub struct Document {
 
 /// Opens and validates a recording. Reads the header and index, never the samples.
 pub fn open(path: &Path) -> Result<Document> {
+    let dir = kymo_core::cache::default_dir().unwrap_or_else(std::env::temp_dir);
+    open_with(path, Some(&dir))
+}
+
+/// [`open`], with the reader's scratch files in `scratch`, or in memory without one (see
+/// [`kymo_core::open_with`]).
+pub fn open_with(path: &Path, scratch: Option<&Path>) -> Result<Document> {
     // The core's errors already name the file.
-    let opened = kymo_core::open(path)?;
+    let opened = kymo_core::open_with(path, scratch)?;
     let (recording, annotations) =
         Recording::new(opened).with_context(|| format!("invalid recording {}", path.display()))?;
     Ok(Document {
