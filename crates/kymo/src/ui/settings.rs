@@ -231,9 +231,9 @@ pub const DISK_CACHE_SESSION_HINT: &str =
 pub fn disk_cache_off_warning(overview: Option<u64>) -> String {
     let size = match overview {
         Some(bytes) => format!("{} for this recording", bytes_text(bytes)),
-        None => "about a tenth of a recording's size".to_owned(),
+        None => "about 10% of each recording".to_owned(),
     };
-    format!("Overviews are kept in memory, which grows with the recording ({size}).")
+    format!("Overviews use extra memory ({size}).")
 }
 
 /// A size in bytes as the warnings show it: in MB below a GB, else in GB with a decimal.

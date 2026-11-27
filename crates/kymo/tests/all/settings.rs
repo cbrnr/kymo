@@ -398,7 +398,7 @@ fn the_disk_cache_limit_snaps_but_off_session_and_unlimited_stay() {
 }
 
 /// With the disk cache off, the warning gives the open recording's overviews in memory, or
-/// a tenth of a recording's size without one.
+/// about 10% of each recording without one.
 #[test]
 fn the_disk_cache_off_warning_gives_the_memory_overviews_take() {
     let warning = disk_cache_off_warning(Some(5_090_922_512));
@@ -406,7 +406,7 @@ fn the_disk_cache_off_warning_gives_the_memory_overviews_take() {
     let warning = disk_cache_off_warning(Some(13_020_880));
     assert!(warning.contains("(13 MB for this recording)"), "{warning}");
     let warning = disk_cache_off_warning(None);
-    assert!(warning.contains("(about a tenth of"), "{warning}");
+    assert!(warning.contains("(about 10% of"), "{warning}");
 }
 
 #[test]
