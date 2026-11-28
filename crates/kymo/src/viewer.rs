@@ -232,6 +232,8 @@ pub struct Viewer {
     layout: Option<Layout>,
     /// Tiles the last frame wanted that weren't cached.
     missing: usize,
+    /// Whether the last frame drew a row on a mean not computed yet for its window.
+    means_pending: bool,
     legend: Legend,
     /// The annotation marks of the last frame.
     marks: Marks,
@@ -326,6 +328,7 @@ impl Viewer {
             name_room: 0.0,
             layout: None,
             missing: 0,
+            means_pending: false,
             marks: Marks::default(),
             pointed: String::new(),
             antialias: false,
@@ -593,6 +596,12 @@ impl Viewer {
     /// Whether the last frame had every tile it wanted, none drawn from a coarser one.
     pub fn complete(&self) -> bool {
         self.layout.is_some() && self.missing == 0
+    }
+
+    /// Whether the last frame was final: every tile it wanted, and each row centered on
+    /// its window's mean where DC removal applies.
+    pub fn settled(&self) -> bool {
+        self.complete() && !self.means_pending
     }
 
     /// The layout of the last frame, once there was one with room for traces.
@@ -1344,6 +1353,10 @@ impl Viewer {
         if let Some(windows) = self.view.dc_request(rec) {
             service.request_means(windows);
         }
+        self.means_pending = self
+            .view
+            .dc_windows()
+            .is_some_and(|windows| !service.means_done(windows));
         let visuals = ui.visuals();
         let painter = ui.painter_at(traces.union(names).union(axis_rect));
         painter.rect_filled(traces, 0.0, visuals.extreme_bg_color);

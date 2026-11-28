@@ -321,6 +321,15 @@ impl TileService {
         self.shared.work.notify_all();
     }
 
+    /// Whether the mean of each of `windows` was computed, whatever came of it (a window in
+    /// a gap has no value and leaves [`TileService::mean`] as it was).
+    pub fn means_done(&self, windows: &[(ChannelId, Range<u64>)]) -> bool {
+        let queue = self.shared.lock_queue();
+        windows
+            .iter()
+            .all(|(channel, range)| queue.mean_done.get(channel) == Some(range))
+    }
+
     /// The last mean computed for `channel` that had a value: a window entirely in a gap,
     /// or one that could not be read, leaves the one before.
     pub fn mean(&self, channel: ChannelId) -> Option<Mean> {

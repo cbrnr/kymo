@@ -142,7 +142,7 @@ fn ready(harness: &mut Harness<'_, KymoApp>) {
     step_until(harness, "the recording", |app| app.viewer().is_some());
     step_until(harness, "the build and the tiles", |app| {
         let viewer = app.viewer().unwrap();
-        !viewer.status().right.contains("Building") && viewer.complete()
+        !viewer.status().right.contains("Building") && viewer.settled()
     });
 }
 

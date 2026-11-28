@@ -1001,6 +1001,12 @@ impl ViewState {
         Some(windows)
     }
 
+    /// The windows last asked for by [`ViewState::dc_request`], `None` while DC removal is
+    /// off.
+    pub fn dc_windows(&self) -> Option<&[(ChannelId, Range<u64>)]> {
+        self.dc_requested.as_deref()
+    }
+
     /// The rows after a change of what is shown, keeping the first channel on screen (or
     /// the next shown one after it) first.
     fn rebuild_rows(&mut self) {
