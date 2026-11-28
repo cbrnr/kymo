@@ -43,6 +43,7 @@ const REMOVE_DC_KEY: &str = "kymo.remove_dc";
 const AUTO_SCALE_KEY: &str = "kymo.auto_scale_on_open";
 const THEME_KEY: &str = "kymo.theme";
 const SYSTEM_FONT_KEY: &str = "kymo.system_font";
+const ANIMATIONS_KEY: &str = "kymo.animations";
 const ANNOTATION_COLORS_KEY: &str = "kymo.annotation_colors";
 const CHANNEL_TYPES_KEY: &str = "kymo.channel_types";
 const CHECK_UPDATES_KEY: &str = "kymo.check_updates";
@@ -149,6 +150,9 @@ pub struct Settings {
     /// [`crate::ui::fonts`]); by default wherever there is one (macOS, Windows), as egui's,
     /// Ubuntu Light, is thin and looks foreign there.
     pub system_font: bool,
+    /// Whether rows move to their new places when channels are shown or hidden, instead of
+    /// jumping there.
+    pub animations: bool,
     /// Whether Kymo asks GitHub for a newer release at startup, at most once a day (see
     /// [`crate::update`]).
     pub check_updates: bool,
@@ -171,6 +175,7 @@ impl Default for Settings {
             auto_scale_on_open: true,
             theme: Theme::System,
             system_font: crate::ui::fonts::SYSTEM_FONT_NAME.is_some(),
+            animations: true,
             check_updates: true,
         }
     }
@@ -226,6 +231,9 @@ impl Settings {
             system_font: get(SYSTEM_FONT_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.system_font),
+            animations: get(ANIMATIONS_KEY)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(defaults.animations),
             check_updates: get(CHECK_UPDATES_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.check_updates),
@@ -254,6 +262,7 @@ impl Settings {
         storage.set_string(AUTO_SCALE_KEY, self.auto_scale_on_open.to_string());
         storage.set_string(THEME_KEY, self.theme.key().to_owned());
         storage.set_string(SYSTEM_FONT_KEY, self.system_font.to_string());
+        storage.set_string(ANIMATIONS_KEY, self.animations.to_string());
         storage.set_string(CHECK_UPDATES_KEY, self.check_updates.to_string());
     }
 
@@ -289,6 +298,7 @@ impl Settings {
             auto_scale_on_open: self.auto_scale_on_open,
             theme: self.theme,
             system_font: self.system_font,
+            animations: self.animations,
             check_updates: self.check_updates,
         }
     }

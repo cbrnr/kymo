@@ -7,7 +7,7 @@ use kymo_core::ChannelId;
 use crate::view::ViewState;
 
 /// Seconds the rows take to reach their new places.
-pub const SECONDS: f64 = 0.18;
+pub const SECONDS: f64 = 0.15;
 
 /// Where a channel's row is drawn, in fractions of the trace area's height from its top,
 /// and how opaque it is (0 for a hidden channel).
@@ -34,7 +34,7 @@ impl Slot {
     }
 
     /// Whether any of it shows in the trace area.
-    fn shows(&self) -> bool {
+    pub fn shows(&self) -> bool {
         self.opacity > 0.0 && self.height > 0.0 && self.top < 1.0 && self.top + self.height > 0.0
     }
 }
@@ -96,6 +96,10 @@ pub struct RowMotion {
     from: Vec<Slot>,
     start: f64,
     seconds: f64,
+    /// The time of the last [`follow`](Self::follow), at which rows are drawn.
+    now: f64,
+    /// Whether the rows set off at the last [`follow`](Self::follow).
+    started: bool,
 }
 
 impl RowMotion {
@@ -108,40 +112,52 @@ impl RowMotion {
     /// 0). Scrolling and zooming move them at once, wherever they are going. Returns
     /// whether they are still moving.
     pub fn follow(&mut self, view: &ViewState, now: f64, seconds: f64) -> bool {
+        let then = std::mem::replace(&mut self.now, now);
+        self.started = false;
         match &mut self.layout {
             Some(layout) if layout.rows == view.row_channels() && layout.order == view.order() => {
                 layout.top = view.top();
                 layout.on_screen = view.rows() as f64;
             }
             Some(_) => {
+                // From where the last frame drew them.
+                self.now = then;
                 let from = (0..view.order().len() as u32)
-                    .map(|c| self.slot(ChannelId(c), now))
+                    .map(|c| self.slot(ChannelId(c)))
                     .collect();
+                self.now = now;
                 self.from = from;
                 self.start = now;
                 self.seconds = seconds;
+                self.started = true;
                 self.layout = Some(Layout::of(view));
             }
             None => self.layout = Some(Layout::of(view)),
         }
-        if self.progress(now).is_none() {
+        if self.progress().is_none() {
             self.from.clear();
         }
         !self.from.is_empty()
     }
 
+    /// Whether the rows set off at the last [`follow`](Self::follow) (and are moving).
+    pub fn started(&self) -> bool {
+        self.started && self.progress().is_some()
+    }
+
     /// How far the rows have come, eased (fast at first, slowing down as they arrive);
     /// `None` when they aren't moving.
-    fn progress(&self, now: f64) -> Option<f64> {
+    pub fn progress(&self) -> Option<f64> {
         if self.from.is_empty() || self.seconds.is_nan() || self.seconds <= 0.0 {
             return None;
         }
-        let t = (now - self.start) / self.seconds;
+        let t = (self.now - self.start) / self.seconds;
         (t < 1.0).then(|| 1.0 - (1.0 - t.max(0.0)).powi(3))
     }
 
-    /// Where `channel`'s row is drawn at `now`.
-    fn slot(&self, channel: ChannelId, now: f64) -> Slot {
+    /// Where `channel`'s row is drawn, as last followed; an empty slot (no height, no
+    /// opacity) for a hidden channel once it is gone.
+    pub fn slot(&self, channel: ChannelId) -> Slot {
         let Some(layout) = &self.layout else {
             return Slot {
                 top: 0.0,
@@ -150,27 +166,26 @@ impl RowMotion {
             };
         };
         let to = layout.slot(channel);
-        match (self.progress(now), self.from.get(channel.0 as usize)) {
+        match (self.progress(), self.from.get(channel.0 as usize)) {
             (Some(t), Some(&from)) => from.lerp(to, t),
             _ => to,
         }
     }
 
-    /// The rows to draw at `now`, as last followed: the channels with any of their rows in
-    /// the trace area, top to bottom. Without a change in progress, the view's rows on
-    /// screen.
-    pub fn rows(&self, view: &ViewState, now: f64) -> Vec<(ChannelId, Slot)> {
+    /// The rows to draw, as last followed: the channels with any of their rows in the
+    /// trace area, top to bottom. Without a change in progress, the view's rows on screen.
+    pub fn rows(&self, view: &ViewState) -> Vec<(ChannelId, Slot)> {
         let Some(layout) = &self.layout else {
             return Vec::new();
         };
-        let channels: &[ChannelId] = if self.progress(now).is_some() {
+        let channels: &[ChannelId] = if self.progress().is_some() {
             &layout.order
         } else {
             view.visible_channels()
         };
         channels
             .iter()
-            .map(|&c| (c, self.slot(c, now)))
+            .map(|&c| (c, self.slot(c)))
             .filter(|(_, slot)| slot.shows())
             .collect()
     }

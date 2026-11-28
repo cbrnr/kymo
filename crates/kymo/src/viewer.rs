@@ -23,7 +23,7 @@ use crate::document::{Document, Summary, format_duration};
 use crate::history::{self, Change, History, Mark};
 use crate::keymap::{Keymap, Platform};
 use crate::measure::{self, Measurement, Span};
-use crate::motion::{self, RowMotion};
+use crate::motion::{self, RowMotion, Slot};
 use crate::render::{Frame, Scene, faded};
 use crate::scale;
 use crate::scale_bar::{ScaleBar, reading_unit, scale_bars};
@@ -38,7 +38,7 @@ use crate::ui::header::{
 use crate::ui::minimap::{self, Minimap};
 use crate::ui::palette::{annotation_color, bad_color, type_color};
 use crate::ui::{elide_middle, readout, scrollbar, status};
-use crate::view::{Area, ViewState};
+use crate::view::{Area, ScaleGroup, ViewState};
 
 /// Narrowest the sidebar can be dragged.
 const SIDEBAR_MIN_WIDTH: f32 = 200.0;
@@ -233,6 +233,8 @@ pub struct Viewer {
     layout: Option<Layout>,
     /// The rows on their way to new places after channels were shown, hidden or reordered.
     motion: RowMotion,
+    /// Whether rows move to their new places instead of jumping there.
+    animations: bool,
     /// Tiles the last frame wanted that weren't cached.
     missing: usize,
     /// Whether the last frame drew a row on a mean not computed yet for its window.
@@ -249,6 +251,8 @@ pub struct Viewer {
     /// Whether scale bars are drawn, and those of the last frame with where they were.
     show_scale_bars: bool,
     scale_bars: Vec<(ScaleBar, Rect)>,
+    /// Where each scale group's bar was when the rows last set off.
+    bars_from: Vec<(ScaleGroup, Rect)>,
     /// Whether the minimap is shown, its height in points as set, whether it shows signals,
     /// and its state.
     show_minimap: bool,
@@ -331,6 +335,7 @@ impl Viewer {
             name_room: 0.0,
             layout: None,
             motion: RowMotion::new(),
+            animations: true,
             missing: 0,
             means_pending: false,
             marks: Marks::default(),
@@ -338,6 +343,7 @@ impl Viewer {
             antialias: false,
             show_scale_bars: true,
             scale_bars: Vec::new(),
+            bars_from: Vec::new(),
             show_minimap: false,
             minimap_height: minimap::DEFAULT_HEIGHT,
             minimap_signals: true,
@@ -630,6 +636,12 @@ impl Viewer {
         }
     }
 
+    /// Whether rows move to their new places when channels are shown, hidden or reordered,
+    /// instead of jumping there (Settings → Animations).
+    pub fn set_animations(&mut self, on: bool) {
+        self.animations = on;
+    }
+
     /// Whether traces are anti-aliased from the next frame on.
     pub fn set_antialias(&mut self, on: bool) {
         self.antialias = on;
@@ -656,6 +668,11 @@ impl Viewer {
     /// The minimap's state.
     pub fn minimap(&self) -> &Minimap {
         &self.minimap
+    }
+
+    /// Where `channel`'s row was drawn in the last frame, on its way to a new place or not.
+    pub fn row_slot(&self, channel: ChannelId) -> Slot {
+        self.motion.slot(channel)
     }
 
     /// The scale bars of the last frame, each with the rectangle of its bar (not its
@@ -1393,6 +1410,26 @@ impl Viewer {
             );
         }
 
+        // Rows on their way to new places are drawn there, those going too (from the
+        // tiles they had), with what goes with them: annotations of their channels, scale
+        // bars and measurement dots.
+        let now = ui.input(|i| i.time);
+        let seconds = if self.animations {
+            motion::SECONDS
+        } else {
+            0.0
+        };
+        if self.motion.follow(&self.view, now, seconds) {
+            ui.ctx().request_repaint();
+        }
+        if self.motion.started() {
+            self.bars_from = self
+                .scale_bars
+                .iter()
+                .map(|(b, r)| (b.group.clone(), *r))
+                .collect();
+        }
+
         // Annotations behind the traces; their labels go on top, below.
         self.marks = annotations::marks(
             &self.view,
@@ -1410,19 +1447,30 @@ impl Viewer {
         );
         let overlay = painter.with_clip_rect(traces);
         let x_of = |column: u32| traces.left() + column as f32 / ppp;
+        // A mark of a channel's annotation where its row is drawn, as opaque as the row.
         let rect_of = |mark: &annotations::Mark| {
-            let y = annotations::span_y(&self.view, mark.span, area.height);
+            let (y, opacity) = match mark.span {
+                annotations::Span::All => (0.0..area.height, 1.0),
+                annotations::Span::Row(row) => {
+                    let slot = self.motion.slot(self.view.row_channels()[row]);
+                    let top = slot.top * area.height;
+                    (top..top + slot.height * area.height, slot.opacity as f32)
+                }
+            };
             let top = traces.top();
             let y = Rangef::new(top + y.start as f32, top + y.end as f32);
             let x = Rangef::new(x_of(mark.columns.start), x_of(mark.columns.end));
-            Rect::from_x_y_ranges(x, y)
+            (Rect::from_x_y_ranges(x, y), opacity)
         };
         for band in &self.marks.bands {
-            let color = annotation_color(band.color, visuals).gamma_multiply(BAND_ALPHA);
-            overlay.rect_filled(rect_of(band), 0.0, color);
+            let (rect, opacity) = rect_of(band);
+            let color = annotation_color(band.color, visuals).gamma_multiply(BAND_ALPHA * opacity);
+            overlay.rect_filled(rect, 0.0, color);
         }
         for line in &self.marks.lines {
-            overlay.rect_filled(rect_of(line), 0.0, annotation_color(line.color, visuals));
+            let (rect, opacity) = rect_of(line);
+            let color = annotation_color(line.color, visuals).gamma_multiply(opacity);
+            overlay.rect_filled(rect, 0.0, color);
         }
 
         // The selection's outline, in its annotation's color.
@@ -1447,18 +1495,7 @@ impl Viewer {
                 Some(rect)
             });
 
-        // Rows on their way to new places are drawn there, those going too, from the
-        // tiles they had.
-        let now = ui.input(|i| i.time);
-        let seconds = if ui.style().animation_time > 0.0 {
-            motion::SECONDS
-        } else {
-            0.0
-        };
-        if self.motion.follow(&self.view, now, seconds) {
-            ui.ctx().request_repaint();
-        }
-        let slots = self.motion.rows(&self.view, now);
+        let slots = self.motion.rows(&self.view);
         let mut drawn = self.view.tile_view(size_px[0]);
         drawn.channels = slots.iter().map(|&(c, _)| c).collect();
         let query = query(rec, &drawn, service.cache());
@@ -1678,14 +1715,14 @@ impl Viewer {
     /// Where `channel`'s trace is at time `t` on screen: where its row is shown, `t` reads
     /// a value (not an envelope) and the point is within its row's clip.
     fn trace_point(&self, traces: Rect, channel: ChannelId, t: f64, width_px: u32) -> Option<Pos2> {
-        let row = self.view.row_of(channel)?;
-        if !self.view.visible_rows().contains(&row) {
+        let slot = self.motion.slot(channel);
+        if !slot.shows() {
             return None;
         }
         let rec = &self.document.recording;
         let height = f64::from(traces.height());
-        let row_height = self.view.row_height(height);
-        let center = self.view.y_of_row(row as f64 + 0.5, height);
+        let row_height = slot.height * height;
+        let center = slot.center() * height;
         let amplitude = self.view.channel_amplitude(channel);
         if !(amplitude > 0.0 && amplitude.is_finite()) {
             return None;
@@ -1733,11 +1770,12 @@ impl Viewer {
         let anchor = match self.trace_point(traces, channel, time, width_px) {
             Some(at) => at,
             None => {
-                let Some(row) = self.view.row_of(channel) else {
+                let slot = self.motion.slot(channel);
+                if slot.opacity <= 0.0 {
                     return;
-                };
+                }
                 let height = f64::from(traces.height());
-                let y = traces.top() + self.view.y_of_row(row as f64 + 0.5, height) as f32;
+                let y = traces.top() + (slot.center() * height) as f32;
                 let x = traces.left() + self.view.x_at(time, f64::from(traces.width())) as f32;
                 pos2(x, y.clamp(traces.top(), traces.bottom()))
             }
@@ -1842,10 +1880,25 @@ impl Viewer {
             Rect::from_min_max(pos2(x0, y0) / ppp, pos2(x1, y1) / ppp)
         };
         for bar in scale_bars(&self.document.recording, &self.view) {
-            let middle = traces.top() + bar.middle as f32 * row_height;
+            let mut middle = traces.top() + bar.middle as f32 * row_height;
             let half = bar.fraction as f32 * row_height / 2.0;
-            let first = ((middle - half) * ppp).round();
-            let last = ((middle + half) * ppp).round().max(first + 2.0);
+            let mut first = ((middle - half) * ppp).round();
+            let mut last = ((middle + half) * ppp).round().max(first + 2.0);
+            // While rows move, from where the group's bar was (a new one fading in).
+            let mut opacity = 1.0;
+            if let Some(t) = self.motion.progress() {
+                let t = t as f32;
+                match self.bars_from.iter().find(|(group, _)| *group == bar.group) {
+                    Some((_, from)) => {
+                        first = egui::lerp(from.top() * ppp..=first, t).round();
+                        last = egui::lerp(from.bottom() * ppp..=last, t)
+                            .round()
+                            .max(first + 2.0);
+                        middle = (first + last) / 2.0 / ppp;
+                    }
+                    None => opacity = t,
+                }
+            }
             let pieces = [
                 points(column, first, column + 1.0, last),
                 points(column - reach, first, column + 1.0 + reach, first + 1.0),
@@ -1853,9 +1906,9 @@ impl Viewer {
             ];
             let halo = 1.0 / ppp;
             for piece in pieces {
-                painter.rect_filled(piece.expand(halo), 0.0, background);
+                painter.rect_filled(piece.expand(halo), 0.0, background.gamma_multiply(opacity));
             }
-            let color = type_color(&bar.kind, &self.types, visuals);
+            let color = type_color(&bar.kind, &self.types, visuals).gamma_multiply(opacity);
             for piece in pieces {
                 painter.rect_filled(piece, 0.0, color);
             }
@@ -1867,7 +1920,7 @@ impl Viewer {
             );
             let label =
                 Rect::from_min_size(pos, galley.size()).expand2(vec2(LABEL_PLATE_MARGIN, 0.0));
-            painter.rect_filled(label, 2.0, plate);
+            painter.rect_filled(label, 2.0, plate.gamma_multiply(opacity));
             painter.galley(pos, galley, color);
             drawn.push((bar, rect));
         }
