@@ -6,8 +6,8 @@
 use std::path::Path;
 
 use eframe::egui::{
-    self, Align, Button, Color32, FontId, Key, Layout, Modifiers, Rect, RichText, Role, ScrollArea,
-    Sense, TextStyle, TextureHandle, Ui, UiBuilder, WidgetInfo, vec2,
+    self, Align, Button, Color32, CursorIcon, FontId, Key, Layout, Modifiers, Rect, RichText, Role,
+    ScrollArea, Sense, TextStyle, TextureHandle, Ui, UiBuilder, WidgetInfo, vec2,
 };
 
 use super::{elide_middle, text_button};
@@ -217,7 +217,8 @@ impl StartScreen {
             .inner
     }
 
-    /// One recent recording: its name over its folder, a click opening it, its × removing it.
+    /// One recent recording: its name over its folder, a click opening it (the hand on hover
+    /// says so), its × removing it.
     fn row(&mut self, ui: &mut Ui, index: usize, path: &Path, label: &str) -> Option<Picked> {
         let name_font = TextStyle::Body.resolve(ui.style());
         let folder_font = TextStyle::Small.resolve(ui.style());
@@ -225,6 +226,8 @@ impl StartScreen {
         let (rect, response) =
             ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
+        // A click opens it, rather than selecting it as in other lists.
+        let response = response.on_hover_cursor(CursorIcon::PointingHand);
         if self.moved && self.selected == Some(index) {
             response.scroll_to_me(None);
         }
