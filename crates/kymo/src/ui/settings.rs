@@ -80,10 +80,7 @@ pub fn settings_window(
                             ui.label("Animations");
                             ui.checkbox(&mut settings.animations, "Animate Changes");
                             ui.end_row();
-                            hint(
-                                ui,
-                                "Move rows into place when channels are shown, hidden or scrolled to.",
-                            );
+                            hint(ui, "Show changes to the traces with smooth motion.");
                             let label = ui.label(CHANNEL_TYPES);
                             if ui.button(EDIT_TYPES).labelled_by(label.id).clicked() {
                                 *channel_types = true;
