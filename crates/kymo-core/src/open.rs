@@ -137,8 +137,16 @@ fn header_sibling(path: &Path) -> Option<PathBuf> {
 /// A data or marker file whose content is not recognized (BrainVision's `.eeg` and `.vmrk`,
 /// EEGLAB's `.fdt`, BVRF's `.bvrd`, `.bvrm` and `.bvri`) opens the header file beside it, if
 /// there is one. EDF and BDF (with their + variants), BrainVision, EEGLAB, GDF 1 and 2, FIFF,
-/// XDF and BVRF are read for now.
+/// XDF and BVRF are read for now. Scratch files (the time tables of XDF streams on their own
+/// time stamps) go into kymo's cache directory.
 pub fn open(path: &Path) -> Result<Opened, OpenError> {
+    let dir = crate::cache::default_dir().unwrap_or_else(std::env::temp_dir);
+    open_with(path, Some(&dir))
+}
+
+/// [`open`], with scratch files in `scratch`, or in memory without one, so that nothing is
+/// written to disk.
+pub fn open_with(path: &Path, scratch: Option<&Path>) -> Result<Opened, OpenError> {
     let (path, format) = match detect(&head(path)?) {
         Some(format) => (path.to_owned(), format),
         None => {
@@ -165,7 +173,7 @@ pub fn open(path: &Path) -> Result<Opened, OpenError> {
         Format::Mat => eeglab::open(&path),
         Format::Gdf => gdf::open(&path),
         Format::Fiff => fiff::open(&path),
-        Format::Xdf => xdf::open(&path),
+        Format::Xdf => xdf::open_with(&path, scratch),
         other => Err(OpenError::Unsupported {
             path,
             reason: unsupported(other).into(),

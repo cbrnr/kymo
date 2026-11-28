@@ -1,7 +1,11 @@
 # Changelog
 
-## [UNRELEASED] · 2026-11-26
+## [UNRELEASED] · 2026-11-27
+### ✨ Added
+- Limit the disk cache in Settings (5 GB by default, or unlimited), removing the overviews of the recordings used longest ago beyond it, keep them only until Kymo quits with Session, or keep overviews in memory and write nothing with Off ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
+
 ### 🌀 Changed
+- Show the reader's warnings in the sidebar in the warning color instead of with a warning sign, as Settings shows its warning ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
 - Rework channel selection in the sidebar, with a bar below the list that acts on the selected channels ([#16](https://github.com/cbrnr/kymo/pull/16) by [Clemens Brunner](https://github.com/cbrnr)).
 - Give windows and dialogs the same, roomier padding on all four sides, and the update, unsaved changes and notice dialogs a title bar like the other windows ([#20](https://github.com/cbrnr/kymo/pull/20) by [Clemens Brunner](https://github.com/cbrnr)).
 - Make scrollbars slimmer, widening them on hover ([#24](https://github.com/cbrnr/kymo/pull/24) by [Clemens Brunner](https://github.com/cbrnr)).

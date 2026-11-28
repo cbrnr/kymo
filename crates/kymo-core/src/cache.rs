@@ -3,11 +3,14 @@
 //! files of irregular time tables. Everything in it can be rebuilt from the recordings.
 //!
 //! Only files kymo names are counted or removed; anything else in the directory is left
-//! alone, and so is the directory itself.
+//! alone, and so is the directory itself. [`trim`] keeps the cache within a limit by
+//! removing the sidecars used least recently: a sidecar's modification time is its last use,
+//! as opening a complete one sets it to the time of opening.
 
 use std::fs::{self, File};
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 /// The default cache directory: `kymo` in the platform's user cache directory.
 pub fn default_dir() -> Option<PathBuf> {
@@ -22,7 +25,7 @@ pub struct Usage {
     pub files: usize,
 }
 
-/// What [`clear`] did.
+/// What [`clear`] or [`trim`] did.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Cleared {
     /// The files removed and their bytes.
@@ -68,8 +71,17 @@ fn kind(name: &str) -> Option<Kind> {
     }
 }
 
-/// Kymo's files in `dir`, with their lengths and kinds.
-fn files(dir: &Path) -> io::Result<Vec<(PathBuf, u64, Kind)>> {
+/// One of kymo's files in the cache.
+struct Entry {
+    path: PathBuf,
+    len: u64,
+    kind: Kind,
+    /// When it was last modified; for a complete sidecar, when it was last used.
+    modified: SystemTime,
+}
+
+/// Kymo's files in `dir`.
+fn files(dir: &Path) -> io::Result<Vec<Entry>> {
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
         // Nothing cached yet.
@@ -87,7 +99,12 @@ fn files(dir: &Path) -> io::Result<Vec<(PathBuf, u64, Kind)>> {
             continue;
         };
         if meta.is_file() {
-            files.push((entry.path(), meta.len(), kind));
+            files.push(Entry {
+                path: entry.path(),
+                len: meta.len(),
+                kind,
+                modified: meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
+            });
         }
     }
     Ok(files)
@@ -97,8 +114,8 @@ fn files(dir: &Path) -> io::Result<Vec<(PathBuf, u64, Kind)>> {
 pub fn usage(dir: &Path) -> io::Result<Usage> {
     Ok(files(dir)?
         .iter()
-        .fold(Usage::default(), |usage, &(_, len, _)| Usage {
-            bytes: usage.bytes + len,
+        .fold(Usage::default(), |usage, entry| Usage {
+            bytes: usage.bytes + entry.len,
             files: usage.files + 1,
         }))
 }
@@ -112,23 +129,69 @@ pub fn usage(dir: &Path) -> io::Result<Usage> {
 pub fn clear(dir: &Path, keep: &[PathBuf]) -> io::Result<Cleared> {
     let keep: Vec<PathBuf> = keep.iter().map(|p| canonical(p)).collect();
     let mut cleared = Cleared::default();
-    for (path, len, kind) in files(dir)? {
-        if keep.contains(&canonical(&path)) {
+    for entry in files(dir)? {
+        if keep.contains(&canonical(&entry.path)) {
             cleared.kept += 1;
             continue;
         }
-        let removed = match kind {
-            Kind::Sidecar | Kind::Times => fs::remove_file(&path).is_ok(),
-            Kind::Building => remove_unlocked(&path),
-        };
-        if removed {
-            cleared.removed.bytes += len;
+        if remove(&entry) {
+            cleared.removed.bytes += entry.len;
             cleared.removed.files += 1;
-        } else if path.exists() {
+        } else if entry.path.exists() {
             cleared.kept += 1;
         }
     }
     Ok(cleared)
+}
+
+/// Removes files from the cache in `dir` until what it holds is at most `limit` bytes:
+/// first sidecars left behind by builds that never finished, then complete sidecars, the
+/// one used longest ago first. Those in `keep` (the open recordings' sidecars), sidecars
+/// being built and the time tables' scratch files stay, so the cache may stay above the
+/// limit; [`Cleared::kept`] counts the files that would have gone but could not be removed.
+/// A limit of 0 removes every sidecar of a recording not open.
+pub fn trim(dir: &Path, limit: u64, keep: &[PathBuf]) -> io::Result<Cleared> {
+    let keep: Vec<PathBuf> = keep.iter().map(|p| canonical(p)).collect();
+    let files = files(dir)?;
+    let mut bytes: u64 = files.iter().map(|e| e.len).sum();
+    let mut candidates: Vec<&Entry> = files
+        .iter()
+        .filter(|e| matches!(e.kind, Kind::Building | Kind::Sidecar))
+        .filter(|e| !keep.contains(&canonical(&e.path)))
+        .collect();
+    candidates.sort_by_key(|e| (e.kind == Kind::Sidecar, e.modified));
+    let mut cleared = Cleared::default();
+    for entry in candidates {
+        if bytes <= limit {
+            break;
+        }
+        if remove(entry) {
+            bytes -= entry.len;
+            cleared.removed.bytes += entry.len;
+            cleared.removed.files += 1;
+        } else if entry.kind == Kind::Sidecar && entry.path.exists() {
+            // A build in progress is no candidate, so it isn't counted.
+            cleared.kept += 1;
+        }
+    }
+    Ok(cleared)
+}
+
+/// Removes a cache file: one being built only if no one is building it.
+fn remove(entry: &Entry) -> bool {
+    match entry.kind {
+        Kind::Sidecar | Kind::Times => fs::remove_file(&entry.path).is_ok(),
+        Kind::Building => remove_unlocked(&entry.path),
+    }
+}
+
+/// Records a use of the complete sidecar at `path` for [`trim`]: sets its modification time
+/// to now. Without permission to, it keeps the time it was built at.
+pub(crate) fn touch(path: &Path) {
+    // Windows sets file times only through a handle with write access.
+    if let Ok(file) = File::options().write(true).open(path) {
+        let _ = file.set_modified(SystemTime::now());
+    }
 }
 
 /// Removes `path` if no one holds a lock on it.

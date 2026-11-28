@@ -49,8 +49,16 @@ struct GridStream {
 }
 
 /// Opens an XDF file. It is memory-mapped, never loaded; its chunks are walked once at open
-/// to index the samples of streams shown as channels and to read the annotations.
+/// to index the samples of streams shown as channels and to read the annotations. The time
+/// tables of streams on their own time stamps go into temporary files in kymo's cache
+/// directory (see [`TimeTable::writer`]).
 pub fn open(path: &Path) -> Result<Opened, OpenError> {
+    let dir = crate::cache::default_dir().unwrap_or_else(std::env::temp_dir);
+    open_with(path, Some(&dir))
+}
+
+/// [`open`], with the time tables in temporary files in `scratch`, or in memory without one.
+pub fn open_with(path: &Path, scratch: Option<&Path>) -> Result<Opened, OpenError> {
     let io = |source| OpenError::Io {
         path: path.to_owned(),
         source,
@@ -176,9 +184,8 @@ pub fn open(path: &Path) -> Result<Opened, OpenError> {
         // A stream without time stamps starts at t = 0.
         let origin = if timing.stamped { t0 } else { 0.0 };
         let layout = match &timing.own {
-            Some(own) => {
-                own_layout(stream, &map, clock, timing, own, origin).map_err(|e| error(e.into()))?
-            }
+            Some(own) => own_layout(stream, &map, clock, timing, own, origin, scratch)
+                .map_err(|e| error(e.into()))?,
             None => time::layout(&timing.segments, timing.rate, origin),
         };
         if layout.damaged > 0 {
@@ -581,10 +588,14 @@ fn own_layout(
     timing: &Timing,
     own: &OwnTimes,
     origin: f64,
+    scratch: Option<&Path>,
 ) -> Result<Layout, crate::TimeTableError> {
     let segments = &timing.segments;
     let len = stream.len + own.gaps.iter().sum::<u64>();
-    let mut writer = TimeTable::writer(len);
+    let mut writer = match scratch {
+        Some(dir) => TimeTable::writer_in(dir, len),
+        None => TimeTable::writer_in_memory(len),
+    };
     let mut next = 1;
     let mut previous = f64::NAN;
     let period = stream

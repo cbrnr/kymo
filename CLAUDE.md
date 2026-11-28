@@ -31,6 +31,7 @@ CHANGELOG.md         release notes in MNELAB's format; user-visible changes add 
 ## Non-negotiables
 
 - Never load a whole recording into memory. Source files are memory-mapped read-only and never modified.
+- Memory depends on the screen, not the file; the one exception is opt-in: with Disk Cache off, pyramids (about 10% of a recording) are kept in memory so nothing is written to disk.
 - Peaks must never disappear: zoomed out = min/max envelopes, never subsampling. Gaps (EDF+D) stay gaps (NaN).
 - Bucket boundaries are fixed in sample-index space (global tile grid), not relative to the view start.
 - The UI thread never blocks on disk or computation; missing tiles fall back to coarser ones.

@@ -38,7 +38,7 @@ pub use annotation::{
 pub use channel::{Channel, ChannelId, ChannelKind, KNOWN_KINDS, KnownKind, Quantity, Unit};
 pub use error::{AnnotationError, ModelError, OpenError, ReadError, TileError};
 pub use grid::{Grid, GridId, Piece, RegularRun, Timebase};
-pub use open::open;
+pub use open::{open, open_with};
 pub use recording::{BlockReader, Header, Opened, Recording, Stream, StreamContent};
 pub use sample::{Sample, SampleType, SamplesMut};
 pub use timetable::{TimeTable, TimeTableError, TimeTableWriter};

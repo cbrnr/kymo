@@ -18,11 +18,21 @@ pub const TILE_CACHE_MB: [u32; 6] = [128, 256, 512, 1024, 2048, 4096];
 /// The megabytes of GPU memory the trace renderer may take for tiles, as Settings offers
 /// them.
 pub const GPU_MEMORY_MB: [u32; 5] = [128, 256, 512, 1024, 2048];
+/// The disk cache turned off: overviews are kept in memory, nothing is written to disk.
+pub const OFF: u32 = 0;
+/// The disk cache for this session only: every cache stays until Kymo quits.
+pub const SESSION: u32 = u32::MAX - 1;
+/// The disk cache's limit that keeps every cache: no limit.
+pub const UNLIMITED: u32 = u32::MAX;
+/// The megabytes the disk cache may hold, as Settings offers them, after [`OFF`] and
+/// [`SESSION`], which aren't sizes, and up to [`UNLIMITED`].
+pub const DISK_CACHE_MB: [u32; 7] = [OFF, SESSION, 1024, 2048, 5120, 10240, UNLIMITED];
 /// Seconds the default window may span.
 pub const DEFAULT_WINDOW_S: RangeInclusive<f64> = 1.0..=3600.0;
 
 const TILE_CACHE_KEY: &str = "kymo.tile_cache_mb";
 const GPU_MEMORY_KEY: &str = "kymo.gpu_memory_mb";
+const DISK_CACHE_KEY: &str = "kymo.disk_cache_mb";
 const DEFAULT_WINDOW_KEY: &str = "kymo.default_window_s";
 const ANTIALIAS_KEY: &str = "kymo.antialias";
 const SCALE_BARS_KEY: &str = "kymo.scale_bars";
@@ -110,6 +120,10 @@ pub struct Settings {
     pub tile_cache_mb: u32,
     /// Budget for tiles on the GPU, in MB.
     pub gpu_memory_mb: u32,
+    /// What the disk cache may hold, in MB: the least recently used caches of closed
+    /// recordings go beyond it (see [`kymo_core::cache::trim`]). [`OFF`] keeps overviews in
+    /// memory instead, [`SESSION`] keeps every cache until Kymo quits, [`UNLIMITED`] all.
+    pub disk_cache_mb: u32,
     /// Seconds shown when a recording opens and after Default Window (⌘0).
     pub default_window_s: f64,
     /// Whether traces are anti-aliased.
@@ -145,6 +159,7 @@ impl Default for Settings {
         Settings {
             tile_cache_mb: (DEFAULT_BUDGET >> 20) as u32,
             gpu_memory_mb: (DEFAULT_GPU_BUDGET >> 20) as u32,
+            disk_cache_mb: 5120,
             default_window_s: DEFAULT_SPAN,
             antialias: false,
             scale_bars: true,
@@ -174,6 +189,9 @@ impl Settings {
             gpu_memory_mb: get(GPU_MEMORY_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.gpu_memory_mb),
+            disk_cache_mb: get(DISK_CACHE_KEY)
+                .and_then(|v| v.trim().parse().ok())
+                .unwrap_or(defaults.disk_cache_mb),
             default_window_s: get(DEFAULT_WINDOW_KEY)
                 .and_then(|v| v.trim().parse().ok())
                 .unwrap_or(defaults.default_window_s),
@@ -219,6 +237,7 @@ impl Settings {
     pub fn save(&self, storage: &mut dyn Storage) {
         storage.set_string(TILE_CACHE_KEY, self.tile_cache_mb.to_string());
         storage.set_string(GPU_MEMORY_KEY, self.gpu_memory_mb.to_string());
+        storage.set_string(DISK_CACHE_KEY, self.disk_cache_mb.to_string());
         storage.set_string(DEFAULT_WINDOW_KEY, self.default_window_s.to_string());
         storage.set_string(ANTIALIAS_KEY, self.antialias.to_string());
         storage.set_string(SCALE_BARS_KEY, self.scale_bars.to_string());
@@ -238,8 +257,9 @@ impl Settings {
         storage.set_string(CHECK_UPDATES_KEY, self.check_updates.to_string());
     }
 
-    /// Every setting within its range, each budget the nearest offered one; NaN seconds
-    /// and a minimap height that isn't a number become the default.
+    /// Every setting within its range, each budget the nearest offered one (a disk cache that
+    /// is off, for the session or without a limit stays so); NaN seconds and a minimap
+    /// height that isn't a number become the default.
     pub fn clamped(self) -> Settings {
         let seconds = if self.default_window_s.is_nan() {
             DEFAULT_SPAN
@@ -249,6 +269,11 @@ impl Settings {
         Settings {
             tile_cache_mb: nearest(self.tile_cache_mb, &TILE_CACHE_MB),
             gpu_memory_mb: nearest(self.gpu_memory_mb, &GPU_MEMORY_MB),
+            // Off, Session and no limit stay; any other size is the nearest one offered.
+            disk_cache_mb: match self.disk_cache_mb {
+                mb @ (OFF | SESSION | UNLIMITED) => mb,
+                mb => nearest(mb, &DISK_CACHE_MB[2..DISK_CACHE_MB.len() - 1]),
+            },
             default_window_s: seconds.clamp(*DEFAULT_WINDOW_S.start(), *DEFAULT_WINDOW_S.end()),
             antialias: self.antialias,
             scale_bars: self.scale_bars,
@@ -274,6 +299,29 @@ impl Settings {
 
     pub fn gpu_memory_bytes(&self) -> usize {
         (self.gpu_memory_mb as usize) << 20
+    }
+
+    /// Whether overviews are kept in memory, with nothing written to disk.
+    pub fn disk_cache_off(&self) -> bool {
+        self.disk_cache_mb == OFF
+    }
+
+    /// What the disk cache may hold while Kymo runs: nothing with it off, everything for
+    /// the session.
+    pub fn disk_cache_bytes(&self) -> u64 {
+        match self.disk_cache_mb {
+            SESSION | UNLIMITED => u64::MAX,
+            mb => u64::from(mb) << 20,
+        }
+    }
+
+    /// What the disk cache may hold once Kymo has quit (and when it starts, after a crash):
+    /// nothing if it is off or for the session, else its limit.
+    pub fn disk_cache_bytes_at_exit(&self) -> u64 {
+        match self.disk_cache_mb {
+            SESSION => 0,
+            _ => self.disk_cache_bytes(),
+        }
     }
 }
 

@@ -16,11 +16,12 @@ use kymo::annotations::{self, AnnotationColor, AnnotationColors};
 use kymo::app::{KymoApp, Menus, Options};
 use kymo::app_mode::AppMode;
 use kymo::keymap::Platform;
-use kymo::settings::{Settings, Theme, load_annotation_colors};
+use kymo::settings::{OFF, SESSION, Settings, Theme, load_annotation_colors};
 use kymo::types::TypeSettings;
 use kymo::ui::axis::Clock;
 use kymo::ui::gpu::Gpu;
 use kymo::ui::palette::{annotation_color, trace_color};
+use kymo::ui::settings::{DISK_CACHE_HINT, disk_cache_off_warning};
 use kymo::ui::types::{ALL_TYPES, CHANGE_TYPE, FROM_FILE, NEW_TYPE, OTHER_TYPES};
 use kymo::ui::{minimap, scrollbar, status};
 use kymo::update::{Release, Source, UpdateState};
@@ -3082,8 +3083,7 @@ fn warnings_show_as_one_line_with_the_text_on_hover() {
     let full = "The file has 5 bytes";
     assert!(harness.query_by_label_contains(full).is_none());
     let line = harness.get_by_label("1 Warning").rect();
-    // The whole line answers the pointer, the sign at its left as well.
-    hover(&mut harness, egui::pos2(line.left() - 6.0, line.center().y));
+    hover(&mut harness, line.center());
     let shown = Instant::now() + Duration::from_secs(2);
     while harness.query_by_label_contains(full).is_none() && Instant::now() < shown {
         harness.step();
@@ -3792,7 +3792,8 @@ fn settings_clear_the_disk_cache() {
     harness
         .get_by_role_and_label(egui::accesskit::Role::Button, "Disk Cache")
         .click();
-    step_until_label(&mut harness, "3 MB in 1 file cleared, 1 file in use kept");
+    step_until_label(&mut harness, " in 1 file");
+    assert!(harness.query_by_label_contains("cleared").is_none());
     assert!(!other.exists());
     assert!(open.exists());
     assert!(foreign.exists());
@@ -3804,7 +3805,6 @@ fn settings_clear_the_disk_cache() {
     assert!(!harness.state().settings_open());
     choose(&mut harness, "Edit", "Settings");
     step_until_label(&mut harness, " in 1 file");
-    assert!(harness.query_by_label_contains("cleared").is_none());
     drop(harness);
 
     let mut harness = window(file.path());
@@ -3813,6 +3813,133 @@ fn settings_clear_the_disk_cache() {
     harness.run_steps(2);
     harness.get_by_label("Tile Cache");
     assert!(harness.query_by_label("Disk Cache").is_none());
+}
+
+/// The disk cache stays within the limit Settings sets. Off removes the caches of closed
+/// recordings at once, but never the open one's, which goes when another recording opens;
+/// that one keeps its overviews in memory, with nothing written, and Settings warns of
+/// what they take.
+#[test]
+fn settings_limit_the_disk_cache() {
+    let first = TempFile::preset("bdf+c-small");
+    let second = TempFile::preset("edf+d-mixed");
+    let dir = TempDir::new();
+    let hash = "0d5284d4f6dad0bd4380c50b1337de3dbb3982bdc8522b48e7e6ef04bebbaafd";
+    let other = dir.path().join(format!("{hash}.kymo-pyramid"));
+    std::fs::write(&other, vec![0u8; 3 << 20]).unwrap();
+    let foreign = dir.path().join("notes.txt");
+    std::fs::write(&foreign, b"mine").unwrap();
+    let mut harness = cache_window(first.path(), dir.path(), Settings::default());
+    ready(&mut harness);
+    step_until(&mut harness, "the sidecar", |app| {
+        app.viewer()
+            .is_some_and(|v| !v.status().right.contains("Building"))
+    });
+    harness.run_steps(4);
+    // Within the default limit, the other recording's cache stays.
+    assert!(other.exists());
+
+    choose(&mut harness, "Edit", "Settings");
+    harness.run_steps(10);
+    harness.get_by_label(DISK_CACHE_HINT);
+    step_until_label(&mut harness, " in 2 files");
+    pick_budget(&mut harness, "Disk Cache", "Off");
+    assert_eq!(harness.state().settings().disk_cache_mb, OFF);
+    // Trimming to the new limit shows the size it knows until it has the new one.
+    for _ in 0..200 {
+        assert!(harness.query_by_label("Measuring\u{2026}").is_none());
+        harness.step();
+        if harness.query_by_label_contains(" in 1 file").is_some() {
+            break;
+        }
+    }
+    harness.get_by_label_contains(" in 1 file");
+    assert!(!other.exists());
+    let open = viewer(&harness).sidecar_path().unwrap();
+    assert!(open.exists());
+    assert!(foreign.exists());
+    let recording = &viewer(&harness).document().recording;
+    let bytes = kymo_core::pyramid::pyramid_bytes(recording);
+    harness.get_by_label(&disk_cache_off_warning(Some(bytes)));
+    harness.key_press(Key::Escape);
+    harness.run_steps(2);
+
+    let ctx = harness.ctx.clone();
+    harness.state_mut().open(&ctx, second.path().to_owned());
+    step_until(&mut harness, "the second recording", |app| {
+        app.viewer().is_some_and(|v| {
+            v.document().path == second.path() && !v.status().right.contains("Building")
+        })
+    });
+    assert_eq!(viewer(&harness).sidecar_path(), None);
+    step_until(&mut harness, "trimming", |_| !open.exists());
+    let left: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .collect();
+    assert_eq!(left, [foreign]);
+    drop(harness);
+}
+
+/// With the disk cache for the session, every cache stays while Kymo runs and goes when it
+/// quits; one a session left behind (after a crash) goes when Kymo starts.
+#[test]
+fn a_session_disk_cache_goes_when_kymo_quits() {
+    let first = TempFile::preset("bdf+c-small");
+    let second = TempFile::preset("edf+d-mixed");
+    let dir = TempDir::new();
+    let hash = "0d5284d4f6dad0bd4380c50b1337de3dbb3982bdc8522b48e7e6ef04bebbaafd";
+    let stale = dir.path().join(format!("{hash}.kymo-pyramid"));
+    std::fs::write(&stale, vec![0u8; 1 << 20]).unwrap();
+    let foreign = dir.path().join("notes.txt");
+    std::fs::write(&foreign, b"mine").unwrap();
+    let settings = Settings {
+        disk_cache_mb: SESSION,
+        ..Settings::default()
+    };
+    let mut harness = cache_window(first.path(), dir.path(), settings);
+    ready(&mut harness);
+    step_until(&mut harness, "the startup trim", |_| !stale.exists());
+    step_until(&mut harness, "the sidecar", |app| {
+        app.viewer()
+            .is_some_and(|v| !v.status().right.contains("Building"))
+    });
+    let first_cache = viewer(&harness).sidecar_path().unwrap();
+
+    let ctx = harness.ctx.clone();
+    harness.state_mut().open(&ctx, second.path().to_owned());
+    step_until(&mut harness, "the second recording", |app| {
+        app.viewer().is_some_and(|v| {
+            v.document().path == second.path() && !v.status().right.contains("Building")
+        })
+    });
+    let second_cache = viewer(&harness).sidecar_path().unwrap();
+    harness.run_steps(10);
+    assert!(first_cache.exists() && second_cache.exists());
+
+    eframe::App::on_exit(harness.state_mut());
+    assert!(!first_cache.exists() && !second_cache.exists());
+    assert!(foreign.exists());
+    drop(harness);
+}
+
+/// A window opening `path`, with sidecars in `dir` and `settings`.
+fn cache_window(path: &Path, dir: &Path, settings: Settings) -> Harness<'static, KymoApp> {
+    let path = path.to_owned();
+    let sidecars = dir.to_owned();
+    let size = egui::vec2(SIZE.x, 900.0);
+    Harness::builder().with_size(size).build_eframe(move |cc| {
+        KymoApp::new(
+            &cc.egui_ctx,
+            Gpu::none("no GPU in this test"),
+            Options {
+                sidecar_dir: Some(sidecars),
+                settings,
+                ..options()
+            },
+            Some(path),
+        )
+    })
 }
 
 /// Settings → Font puts the system's font in front of egui's for text, where the platform
