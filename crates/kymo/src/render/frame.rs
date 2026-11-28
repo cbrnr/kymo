@@ -9,6 +9,7 @@ use std::sync::Arc;
 use kymo_core::tile::{ChannelBlock, Placed, Query, Tile};
 use kymo_core::{ChannelId, Grid, Recording, SampleType};
 
+use crate::motion::Slot;
 use crate::view::ViewState;
 
 /// Pixels by which a tile's columns reach past its data on either side, so that the
@@ -61,16 +62,40 @@ impl Scene {
     /// `color`, without DC removal. As in MNE, a channel's amplitude fills half a row:
     /// ±amplitude spans the row.
     pub fn from_view(view: &ViewState, size: [u32; 2], color: [f32; 4]) -> Scene {
-        let height = f64::from(size[1]);
-        let row_height = view.row_height(height);
-        let rows = view
+        let rows = view.rows() as f64;
+        let slots: Vec<_> = view
             .visible_rows()
             .zip(view.visible_channels())
             .map(|(i, &channel)| {
+                let slot = Slot {
+                    top: (i as f64 - view.top()) / rows,
+                    height: 1.0 / rows,
+                    opacity: 1.0,
+                };
+                (channel, slot)
+            })
+            .collect();
+        Scene::from_slots(view, &slots, size, color)
+    }
+
+    /// As [`from_view`](Self::from_view), with the rows where `slots` puts them (see
+    /// [`RowMotion::rows`](crate::motion::RowMotion::rows)): a row's trace scales with its
+    /// height, and its color with its opacity.
+    pub fn from_slots(
+        view: &ViewState,
+        slots: &[(ChannelId, Slot)],
+        size: [u32; 2],
+        color: [f32; 4],
+    ) -> Scene {
+        let height = f64::from(size[1]);
+        let rows = slots
+            .iter()
+            .map(|&(channel, slot)| {
                 let amplitude = view.channel_amplitude(channel);
+                let row_height = slot.height * height;
                 Row {
                     channel,
-                    center: view.y_of_row(i as f64 + 0.5, height),
+                    center: slot.center() * height,
                     height: row_height,
                     px_per_unit: if amplitude > 0.0 && amplitude.is_finite() {
                         row_height / (2.0 * amplitude)
@@ -78,7 +103,7 @@ impl Scene {
                         0.0
                     },
                     baseline: 0.0,
-                    color,
+                    color: faded(color, slot.opacity),
                     clip: view.kind_of(channel).is_stim(),
                 }
             })
@@ -91,6 +116,11 @@ impl Scene {
             antialias: false,
         }
     }
+}
+
+/// A premultiplied color at `opacity` of its own.
+pub fn faded(color: [f32; 4], opacity: f64) -> [f32; 4] {
+    color.map(|c| c * opacity.clamp(0.0, 1.0) as f32)
 }
 
 /// A native sample value: integers (int16, int32) widened to i32, or f32.

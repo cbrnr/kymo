@@ -18,6 +18,7 @@ mod keymap;
 mod measure;
 mod menu;
 mod minimap;
+mod motion;
 mod native_menu;
 mod opened;
 mod palette;

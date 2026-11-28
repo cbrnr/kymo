@@ -47,6 +47,7 @@ fn defaults_without_storage_or_values() {
     assert!(defaults.auto_scale_on_open);
     assert!(defaults.minimap && defaults.minimap_signals);
     assert_eq!(defaults.theme, Theme::System);
+    assert!(defaults.animations);
     // On where Kymo has a system font to use.
     assert_eq!(
         defaults.system_font,
@@ -114,6 +115,7 @@ fn saved_settings_read_back() {
         auto_scale_on_open: true,
         theme: Theme::Dark,
         system_font: true,
+        animations: false,
         check_updates: false,
     };
     let mut storage = Memory::default();
@@ -178,6 +180,7 @@ fn unreadable_values_are_defaults_and_others_kept() {
         auto_scale_on_open: true,
         theme: Theme::Light,
         system_font: true,
+        animations: false,
         check_updates: false,
     };
     let defaults = Settings::default();
@@ -281,6 +284,13 @@ fn unreadable_values_are_defaults_and_others_kept() {
             },
         ),
         (
+            "kymo.animations",
+            Settings {
+                animations: defaults.animations,
+                ..saved.clone()
+            },
+        ),
+        (
             "kymo.check_updates",
             Settings {
                 check_updates: defaults.check_updates,
@@ -318,6 +328,7 @@ fn values_out_of_range_are_clamped() {
         auto_scale_on_open: false,
         theme: Theme::System,
         system_font: false,
+        animations: false,
         check_updates: true,
     }
     .save(&mut storage);

@@ -77,6 +77,10 @@ pub fn settings_window(
                                 ui.end_row();
                                 hint(ui, &format!("Use the system font ({name}) for all text."));
                             }
+                            ui.label("Animations");
+                            ui.checkbox(&mut settings.animations, "Animate Changes");
+                            ui.end_row();
+                            hint(ui, "Show changes to the traces with smooth motion.");
                             let label = ui.label(CHANNEL_TYPES);
                             if ui.button(EDIT_TYPES).labelled_by(label.id).clicked() {
                                 *channel_types = true;

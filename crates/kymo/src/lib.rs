@@ -14,6 +14,7 @@ pub mod history;
 pub mod keymap;
 pub mod measure;
 pub mod menu;
+pub mod motion;
 #[cfg(any(target_os = "macos", windows))]
 pub mod native_menu;
 #[cfg(not(any(target_os = "macos", windows)))]

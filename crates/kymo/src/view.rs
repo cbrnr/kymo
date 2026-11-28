@@ -136,6 +136,8 @@ pub struct ViewState {
     top: f64,
     /// Rows on screen as last chosen; fewer while fewer channels are shown.
     rows: usize,
+    /// Counts the jumps to a channel's row (see [`jumps`](Self::jumps)).
+    jumps: u64,
     /// Amplitude per channel spacing (SI units) of the scale groups Auto Scale fitted, before
     /// `scale`; the others have their defaults ([`group_default`]).
     fitted: HashMap<ScaleGroup, f64>,
@@ -201,6 +203,7 @@ impl ViewState {
             default_span: DEFAULT_SPAN,
             top: 0.0,
             rows: DEFAULT_ROWS,
+            jumps: 0,
             fitted: HashMap::new(),
             scale: 1.0,
             alone: BTreeSet::new(),
@@ -876,7 +879,7 @@ impl ViewState {
     pub fn scroll_to(&mut self, channel: ChannelId) -> bool {
         match self.row_of(channel) {
             Some(row) => {
-                self.set_top(row as f64);
+                self.jump_to(row as f64);
                 true
             }
             None => false,
@@ -892,11 +895,26 @@ impl ViewState {
         };
         let (row, rows) = (row as f64, self.rows() as f64);
         if row < self.top {
-            self.set_top(row);
+            self.jump_to(row);
         } else if row + 1.0 > self.top + rows {
-            self.set_top(row + 1.0 - rows);
+            self.jump_to(row + 1.0 - rows);
         }
         true
+    }
+
+    /// How many times [`scroll_to`](Self::scroll_to) and [`reveal`](Self::reveal) moved
+    /// the rows: jumps to a channel, which rows may move to smoothly, as they don't follow
+    /// the pointer.
+    pub fn jumps(&self) -> u64 {
+        self.jumps
+    }
+
+    fn jump_to(&mut self, top: f64) {
+        let before = self.top;
+        self.set_top(top);
+        if self.top != before {
+            self.jumps += 1;
+        }
     }
 
     /// Scrolls so that row `top` (fractional for smooth scrolling) is first on screen.

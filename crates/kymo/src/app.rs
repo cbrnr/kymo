@@ -344,6 +344,7 @@ impl KymoApp {
             viewer.cache().set_budget(settings.tile_cache_bytes());
             viewer.set_default_span(settings.default_window_s);
             viewer.set_antialias(settings.antialias);
+            viewer.set_animations(settings.animations);
             viewer.set_scale_bars(settings.scale_bars);
             viewer.set_minimap(
                 settings.minimap,
@@ -1626,6 +1627,7 @@ impl KymoApp {
                     self.stim_options,
                 );
                 viewer.set_antialias(self.options.settings.antialias);
+                viewer.set_animations(self.options.settings.animations);
                 viewer.set_scale_bars(self.options.settings.scale_bars);
                 viewer.set_minimap(
                     self.options.settings.minimap,

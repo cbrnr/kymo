@@ -10324,3 +10324,53 @@ fn a_channel_name_scrolls_without_selecting() {
         [kymo_core::ChannelId(1)]
     );
 }
+
+/// Hiding a channel folds its row shut while the next ones move up and grow (five channels,
+/// fewer than the rows that fit); the EEG scale bar goes from beside A1 to beside A2 on the
+/// way, without jumping to where A2's row is in between. Without animations, rows jump.
+#[test]
+fn hidden_rows_fold_shut_unless_animations_are_off() {
+    use kymo_core::ChannelId;
+    let file = TempFile::preset("bdf+c-small");
+    let mut harness = window_with_short_frames(file.path());
+    ready(&mut harness);
+    let eeg_bar = |h: &Harness<'_, KymoApp>| {
+        let bars = viewer(h).scale_bars();
+        let eeg = bars.iter().find(|(b, _)| b.kind == ChannelKind::EEG);
+        eeg.unwrap().1.center().y
+    };
+    let before = eeg_bar(&harness);
+    harness.get_by_label("Show A1").click();
+    harness.run_steps(3);
+    let a1 = viewer(&harness).row_slot(ChannelId(0));
+    let a2 = viewer(&harness).row_slot(ChannelId(1));
+    assert!(a1.opacity > 0.0 && a1.opacity < 1.0, "{a1:?}");
+    assert!(a1.height > 0.0 && a1.height < 0.2, "{a1:?}");
+    assert!(a2.top > 0.0 && a2.top < 0.2, "{a2:?}");
+    assert!(a2.height > 0.2 && a2.height < 0.25, "{a2:?}");
+    let mut bars = vec![eeg_bar(&harness)];
+    for _ in 0..12 {
+        harness.step();
+        bars.push(eeg_bar(&harness));
+    }
+    let after = eeg_bar(&harness);
+    assert!(after > before);
+    for y in bars {
+        assert!(
+            y >= before - 1.0 && y <= after + 1.0,
+            "{y} not in {before}..{after}"
+        );
+    }
+    let a2 = viewer(&harness).row_slot(ChannelId(1));
+    assert_eq!((a2.top, a2.height), (0.0, 0.25));
+    assert_eq!(viewer(&harness).row_slot(ChannelId(0)).opacity, 0.0);
+
+    let mut settings = harness.state().settings().clone();
+    settings.animations = false;
+    harness.state_mut().set_settings(settings);
+    harness.get_by_label("Show A1").click();
+    harness.run_steps(2);
+    let a2 = viewer(&harness).row_slot(ChannelId(1));
+    assert_eq!((a2.top, a2.height), (0.2, 0.2));
+    assert_eq!(eeg_bar(&harness), before);
+}
