@@ -45,6 +45,7 @@ fn defaults_without_storage_or_values() {
     assert_eq!(defaults.default_window_s, 20.0);
     assert!(!defaults.antialias);
     assert!(defaults.auto_scale_on_open);
+    assert!(defaults.minimap && defaults.minimap_signals);
     assert_eq!(defaults.theme, Theme::System);
     // On where Kymo has a system font to use.
     assert_eq!(
