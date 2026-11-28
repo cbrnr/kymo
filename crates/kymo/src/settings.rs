@@ -150,8 +150,9 @@ pub struct Settings {
     /// [`crate::ui::fonts`]); by default wherever there is one (macOS, Windows), as egui's,
     /// Ubuntu Light, is thin and looks foreign there.
     pub system_font: bool,
-    /// Whether rows move to their new places when channels are shown or hidden, instead of
-    /// jumping there.
+    /// Whether Kymo's own animations play (for now, rows moving to their new places when
+    /// channels are shown or hidden) instead of changes showing at once; egui's (fades,
+    /// scrollbars) don't follow it.
     pub animations: bool,
     /// Whether Kymo asks GitHub for a newer release at startup, at most once a day (see
     /// [`crate::update`]).

@@ -78,11 +78,11 @@ pub fn settings_window(
                                 hint(ui, &format!("Use the system font ({name}) for all text."));
                             }
                             ui.label("Animations");
-                            ui.checkbox(&mut settings.animations, "Animate Channel Rows");
+                            ui.checkbox(&mut settings.animations, "Animate Changes");
                             ui.end_row();
                             hint(
                                 ui,
-                                "Fold rows shut or open when channels are hidden or shown.",
+                                "Move rows into place when channels are shown or hidden.",
                             );
                             let label = ui.label(CHANNEL_TYPES);
                             if ui.button(EDIT_TYPES).labelled_by(label.id).clicked() {
