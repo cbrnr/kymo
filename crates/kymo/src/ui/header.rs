@@ -1379,7 +1379,9 @@ fn channel_list(
                     if let Some(hint) = hint {
                         response = response.on_hover_text(hint);
                     }
-                    if response.hovered() || row_response.hovered() {
+                    // The hand where a click shows the channel; the arrow where it selects, as
+                    // in other lists.
+                    if response.hovered() && shown {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                     }
                     let modifiers = ui.input(|i| i.modifiers);

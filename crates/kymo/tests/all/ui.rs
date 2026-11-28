@@ -10278,8 +10278,9 @@ fn the_minimap_follows_picked_colors() {
 }
 
 /// A click on a shown channel's name scrolls the traces to it and leaves the selection as
-/// it was, as its hint says; with ⌘ it selects as a click beside the name does, and a hidden
-/// channel's name, with nowhere to scroll to, selects too.
+/// it was, as its hint and the hand over it say; with ⌘ it selects as a click beside the
+/// name, under the arrow, does, and a hidden channel's name, with nowhere to scroll to,
+/// selects too.
 #[test]
 fn a_channel_name_scrolls_without_selecting() {
     use egui::accesskit::Role;
@@ -10295,12 +10296,13 @@ fn a_channel_name_scrolls_without_selecting() {
     assert_eq!(viewer(&harness).view().top(), 2.0);
     assert!(viewer(&harness).view().selected().is_empty());
 
-    let a2 = harness
-        .get_by_role_and_label(Role::Label, "A2")
-        .rect()
-        .center();
-    hover(&mut harness, a2);
+    // The hand over the name, the arrow beside it, where a click selects.
+    let a2 = harness.get_by_role_and_label(Role::Label, "A2").rect();
+    hover(&mut harness, a2.center());
+    assert_eq!(cursor(&harness), egui::CursorIcon::PointingHand);
     assert!(tooltip(&mut harness, "Show in Traces"));
+    hover(&mut harness, egui::pos2(a2.right() + 8.0, a2.center().y));
+    assert_eq!(cursor(&harness), egui::CursorIcon::Default);
 
     harness
         .get_by_role_and_label(Role::Label, "A1")
@@ -10312,7 +10314,10 @@ fn a_channel_name_scrolls_without_selecting() {
     );
     assert_eq!(viewer(&harness).view().top(), 0.0);
 
+    // A hidden channel's name selects, under the arrow.
     click_in_list(&mut harness, Role::CheckBox, "Show A2");
+    hover(&mut harness, a2.center());
+    assert_eq!(cursor(&harness), egui::CursorIcon::Default);
     click_in_list(&mut harness, Role::Label, "A2");
     assert_eq!(
         viewer(&harness).view().selected(),
