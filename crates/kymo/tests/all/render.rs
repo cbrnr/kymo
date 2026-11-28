@@ -9,7 +9,7 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Mutex, OnceLock};
 
 use crate::common::{
-    Fixture, HATCH, Rng, Truth, channel, f32_rows, grid, i16_rows, i32_rows, view, walk,
+    Fixture, HATCH, Rng, Truth, channel, f32_rows, grid, i16_rows, i32_rows, shared_gpu, view, walk,
 };
 use eframe::egui_wgpu::wgpu;
 use kymo::render::{DEFAULT_GPU_BUDGET, EDGE_TOLERANCE, Frame, Scene, TraceRenderer};
@@ -28,31 +28,14 @@ struct Gpu {
     renderers: Mutex<Vec<TraceRenderer>>,
 }
 
-/// The test GPU, created once, with the limits eframe asks for.
+/// The test GPU: the device every test that renders shares (see [`shared_gpu`]).
 fn gpu() -> Option<&'static Gpu> {
     static GPU: OnceLock<Option<Gpu>> = OnceLock::new();
     let gpu = GPU
         .get_or_init(|| {
-            let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
-            if wgpu::Backends::from_env().is_none() {
-                desc.backends = wgpu::Backends::PRIMARY;
-            }
-            let instance = wgpu::Instance::new(desc);
-            let adapter = pollster::block_on(
-                instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
-            )
-            .ok()?;
-            eprintln!("GPU tests on {:?}", adapter.get_info());
-            let (device, queue) =
-                pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-                    label: Some("kymo test"),
-                    required_limits: wgpu::Limits::default(),
-                    ..Default::default()
-                }))
-                .ok()?;
-            Some(Gpu {
-                device,
-                queue,
+            shared_gpu().map(|shared| Gpu {
+                device: shared.device.clone(),
+                queue: shared.queue.clone(),
                 renderers: Mutex::default(),
             })
         })

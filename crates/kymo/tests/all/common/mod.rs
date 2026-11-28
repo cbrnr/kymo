@@ -1,13 +1,48 @@
-//! Recordings, tiles and the f64 reference for the renderer tests.
+//! Recordings, tiles and the f64 reference for the renderer tests, and the GPU every test
+//! that renders shares.
 
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use eframe::egui_wgpu::{WgpuSetupCreateNew, WgpuSetupExisting, wgpu};
 use kymo::render::{Row, Scene};
 use kymo_core::pyramid::Pyramid;
 use kymo_core::testing::{MemData, opened};
 use kymo_core::tile::{Level, SignalVersion, Tile, TileCache, TileKey, View, compute_raw};
 use kymo_core::{Channel, ChannelId, Grid, GridId, Recording, SampleType, Timebase};
+
+/// The wgpu device on Metal, Vulkan or DX12 (traces need storage buffers in vertex shaders,
+/// which OpenGL lacks; `WGPU_BACKEND` picks another), as eframe would ask for it, created
+/// once and shared by every test that renders, the renderer's and the windows'; `None`
+/// without such an adapter.
+///
+/// More than one instance and device at a time, as several tests running at once made,
+/// crashed lavapipe (Mesa's software Vulkan driver, which CI uses on Linux) now and then
+/// with a segfault that took the whole test binary down.
+pub fn shared_gpu() -> Option<&'static WgpuSetupExisting> {
+    static GPU: OnceLock<Option<WgpuSetupExisting>> = OnceLock::new();
+    GPU.get_or_init(|| {
+        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
+        if wgpu::Backends::from_env().is_none() {
+            desc.backends = wgpu::Backends::PRIMARY;
+        }
+        let instance = wgpu::Instance::new(desc);
+        let adapter =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+                .ok()?;
+        eprintln!("GPU tests on {:?}", adapter.get_info());
+        let device_descriptor = WgpuSetupCreateNew::without_display_handle().device_descriptor;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&device_descriptor(&adapter))).ok()?;
+        Some(WgpuSetupExisting {
+            instance,
+            adapter,
+            device,
+            queue,
+        })
+    })
+    .as_ref()
+}
 
 pub const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 /// Premultiplied, with no red, so hatch pixels never count as trace pixels.
