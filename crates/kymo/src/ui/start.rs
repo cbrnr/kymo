@@ -1,7 +1,7 @@
-//! The window without a recording: the app's icon, Open…, what can be opened, and the
-//! recordings opened last, each opened with a click (or the arrow keys and Return) and
-//! removed from the list with the × that shows on hover. A recording that could not be
-//! opened shows its error in place of the title.
+//! The window without a recording: the app's icon, Open…, and the recordings opened last,
+//! each opened with a click (or the arrow keys and Return) and removed from the list with
+//! the × that shows on hover. A recording that could not be opened shows its error in place
+//! of the title.
 
 use std::path::Path;
 
@@ -19,9 +19,6 @@ pub const PROMPT: &str = "Open a recording to get started";
 pub const FAILED: &str = "Could Not Open the Recording";
 /// The tooltip of a recent recording's ×.
 const REMOVE: &str = "Remove from List";
-
-/// The formats Kymo reads, as the README lists them.
-const FORMATS: &str = "EDF · BDF · BrainVision · BVRF · EEGLAB · FIFF · GDF · XDF";
 
 /// The column's widest, its icon's size, and the padding in a recent recording's row.
 const WIDTH: f32 = 440.0;
@@ -47,8 +44,9 @@ pub struct StartScreen {
     /// The row the arrow keys moved to.
     selected: Option<usize>,
     icon: Option<TextureHandle>,
-    /// The column's height last frame, to center it.
+    /// The column's height last frame, and its head's (down to Open…), to place it.
     height: f32,
+    head: f32,
 }
 
 impl StartScreen {
@@ -81,8 +79,10 @@ impl StartScreen {
         let viewport = ui.available_size();
         let width = (viewport.x - 32.0).clamp(0.0, WIDTH);
         ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            // A little above the middle, as dialogs sit.
-            ui.add_space(((viewport.y - self.height) * 0.4).max(16.0));
+            // Open… a little above the middle, the list below it, so the head stays put as
+            // the list changes; higher only where the list wouldn't fit otherwise.
+            let top = (viewport.y * 0.45 - self.head).min(viewport.y - self.height - 16.0);
+            ui.add_space(top.max(16.0));
             let column = ui
                 .horizontal(|ui| {
                     ui.add_space(((viewport.x - width) / 2.0).max(0.0));
@@ -91,16 +91,15 @@ impl StartScreen {
                         Layout::top_down(Align::Center),
                         |ui| {
                             ui.set_width(width);
-                            self.column(ui, &icon, recent, error, &mut picked);
+                            self.column(ui, &icon, recent, error, &mut picked)
                         },
                     )
-                    .response
-                    .rect
                 })
                 .inner;
             ui.add_space(16.0);
-            if (column.height() - self.height).abs() > 0.5 {
-                self.height = column.height();
+            let (height, head) = (column.response.rect.height(), column.inner);
+            if (height - self.height).abs() > 0.5 || (head - self.head).abs() > 0.5 {
+                (self.height, self.head) = (height, head);
                 ui.ctx().request_repaint();
             }
         });
@@ -128,6 +127,7 @@ impl StartScreen {
         None
     }
 
+    /// The column's pieces; returns its head's height, down to Open….
     fn column(
         &mut self,
         ui: &mut Ui,
@@ -135,7 +135,7 @@ impl StartScreen {
         recent: &Recent,
         error: Option<&str>,
         picked: &mut Option<Picked>,
-    ) {
+    ) -> f32 {
         let weak = ui.visuals().weak_text_color();
         ui.add(egui::Image::new((icon.id(), vec2(ICON, ICON))));
         ui.add_space(8.0);
@@ -152,22 +152,17 @@ impl StartScreen {
                 ui.add(egui::Label::new(RichText::new(error).color(color)).wrap());
             }
         }
-        ui.add_space(16.0);
+        ui.add_space(32.0);
         let open = Button::new("Open…").min_size(vec2(96.0, 0.0));
         if ui.add(open).clicked() {
             *picked = Some(Picked::Open);
         }
-        ui.add_space(8.0);
-        ui.label(
-            RichText::new("or drop a file anywhere in the window")
-                .small()
-                .color(weak),
-        );
-        ui.label(RichText::new(FORMATS).small().color(weak));
+        let head = ui.min_rect().bottom() - ui.max_rect().top();
         if !recent.paths().is_empty() {
-            ui.add_space(28.0);
+            ui.add_space(36.0);
             self.recent(ui, recent, picked);
         }
+        head
     }
 
     /// The heading with Clear, and a row per recent recording in a frame.
@@ -223,7 +218,6 @@ impl StartScreen {
         let height = name_font.size + folder_font.size + 3.0 * ROW_PADDING;
         let (rect, response) =
             ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
-        let response = response.on_hover_text(path.display().to_string());
         response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
         let hovered = ui.rect_contains_pointer(rect);
         // The pointer takes over from the arrow keys once it moves.
@@ -259,7 +253,8 @@ impl StartScreen {
         let mut picked = response.clicked().then_some(Picked::Recent(index));
         if hovered {
             let button = text_button("×", None).min_size(remove.size());
-            if ui.put(remove, button).on_hover_text(REMOVE).clicked() {
+            // Placed without moving the cursor, which would shift the rows below up.
+            if ui.place(remove, button).on_hover_text(REMOVE).clicked() {
                 picked = Some(Picked::Remove(index));
             }
         }

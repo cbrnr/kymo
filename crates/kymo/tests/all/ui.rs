@@ -7046,10 +7046,15 @@ fn the_start_screen_removes_one_recent_recording_or_clears_them() {
     let third = TempFile::preset("bdf+c-small");
     let mut harness = start_window(&[first.path(), second.path(), third.path()]);
     harness.run_steps(2);
-    // The × shows on the row under the pointer.
+    // The × shows on the row under the pointer, and the rows stay where they are.
     assert!(harness.query_by_label("×").is_none());
+    let rows = |h: &Harness<'_, KymoApp>| {
+        [&first, &second, &third].map(|f| h.get_by_label(&file_name(f)).rect())
+    };
+    let before = rows(&harness);
     harness.get_by_label(&file_name(&second)).hover();
     harness.run_steps(2);
+    assert_eq!(rows(&harness), before);
     harness.get_by_label("×").click();
     harness.run_steps(2);
     assert!(harness.state().viewer().is_none());
