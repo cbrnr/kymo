@@ -44,13 +44,15 @@ fn without_triggers(name: &str) -> TempFile {
 }
 
 /// Pyramids in memory, the menu bar drawn by egui as on Linux, on every platform, and
-/// default settings but for egui's fonts, the same on every platform.
+/// default settings but for egui's fonts, the same on every platform, and the minimap, off
+/// so the tests start with the time scrollbar (those that need it turn it on).
 fn options() -> Options {
     Options {
         sidecar_dir: None,
         menus: Menus::Egui(Platform::Linux),
         settings: Settings {
             system_font: false,
+            minimap: false,
             ..Settings::default()
         },
         annotation_colors: Default::default(),
@@ -3606,10 +3608,16 @@ fn settings_apply_at_once() {
     pick_budget(&mut harness, "Tile Cache", "256 MB (Default)");
     assert_eq!(viewer(&harness).cache().budget(), 256 << 20);
 
-    // Restore Defaults, at once too.
+    // Restore Defaults, at once too; the minimap, set in the View menu, stays as it is.
     harness.get_by_label("Restore Defaults").click();
     harness.run_steps(2);
-    assert_eq!(*harness.state().settings(), Settings::default());
+    assert_eq!(
+        *harness.state().settings(),
+        Settings {
+            minimap: false,
+            ..Settings::default()
+        }
+    );
     assert_eq!(viewer(&harness).cache().budget(), 256 << 20);
     harness.key_press_modifiers(command(), Key::Num0);
     harness.step();

@@ -5,6 +5,7 @@
 - Limit the disk cache in Settings (5 GB by default, or unlimited), removing the overviews of the recordings used longest ago beyond it, keep them only until Kymo quits with Session, or keep overviews in memory and write nothing with Off ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🌀 Changed
+- Show the minimap by default ([#26](https://github.com/cbrnr/kymo/pull/26) by [Clemens Brunner](https://github.com/cbrnr)).
 - Show the recent recordings on the start screen, opened with a click, instead of the file dialog when Kymo starts without a recording ([#25](https://github.com/cbrnr/kymo/pull/25) by [Clemens Brunner](https://github.com/cbrnr)).
 - Show the reader's warnings in the sidebar in the warning color instead of with a warning sign, as Settings shows its warning ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
 - Rework channel selection in the sidebar, with a bar below the list that acts on the selected channels ([#16](https://github.com/cbrnr/kymo/pull/16) by [Clemens Brunner](https://github.com/cbrnr)).

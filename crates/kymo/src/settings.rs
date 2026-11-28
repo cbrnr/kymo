@@ -163,7 +163,7 @@ impl Default for Settings {
             default_window_s: DEFAULT_SPAN,
             antialias: false,
             scale_bars: true,
-            minimap: false,
+            minimap: true,
             minimap_height: minimap::DEFAULT_HEIGHT,
             minimap_signals: true,
             remove_dc: true,
