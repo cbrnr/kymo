@@ -145,7 +145,7 @@ The executable is available at `target/release/kymo` (`kymo.exe` on Windows).
 
 ```sh
 kymo recording.bdf          # open a recording
-kymo                        # choose a file in a dialog
+kymo                        # start without a recording, listing the recent ones
 kymo --info recording.fif   # print a recording summary without opening a window
 ```
 

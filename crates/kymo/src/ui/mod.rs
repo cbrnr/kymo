@@ -1,7 +1,7 @@
-//! Pieces of the window: the time axis, scrollbars, the minimap, the status line, the
-//! sidebar, trace colors, the light and dark looks and the color picker, the egui-drawn
-//! menus and windows, the Settings and Recording Info windows, the renderer inside egui,
-//! and which of the windows is in front.
+//! Pieces of the window: the start screen, the time axis, scrollbars, the minimap, the
+//! status line, the sidebar, trace colors, the light and dark looks and the color picker,
+//! the egui-drawn menus and windows, the Settings and Recording Info windows, the renderer
+//! inside egui, and which of the windows is in front.
 
 pub mod axis;
 pub mod color;
@@ -16,6 +16,7 @@ pub mod palette;
 pub mod readout;
 pub mod scrollbar;
 pub mod settings;
+pub mod start;
 pub mod status;
 pub mod stepper;
 pub mod theme;
