@@ -872,6 +872,11 @@ impl KymoApp {
             && !ctx.egui_wants_keyboard_input()
             && !egui::Popup::is_any_open(&ctx)
             && Overlay::front(&ctx, self.open_overlays()).is_none();
+        // Whatever is opening or open, the list changes order: the row the arrow keys moved
+        // to goes, even where a recording opened too fast for a frame of Opening… to show.
+        if !matches!(self.state, State::Empty | State::Failed { .. }) {
+            self.start.deselect();
+        }
         match &mut self.state {
             State::Ready(viewer) => {
                 let shown = viewer.show(
@@ -901,7 +906,6 @@ impl KymoApp {
                 });
             }
             State::Loading(loading) => {
-                self.start.deselect();
                 let text = format!("Opening {}…", loading.path().display());
                 egui::CentralPanel::default().show(ui, |ui| {
                     ui.centered_and_justified(|ui| {
