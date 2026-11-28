@@ -2,10 +2,11 @@
 //! line, with the trace renderer on a real GPU where there is one.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
+use crate::common::shared_gpu;
 use crate::kinds::{KINDS, kind_index};
 use eframe::egui::{self, Key, Modifiers};
 use eframe::egui_wgpu;
@@ -4936,38 +4937,6 @@ fn the_description_field_names_new_annotations() {
     press(&mut harness, command(), Key::E);
     assert!(harness.query_by_label(field).is_none());
     harness.get_by_label("Show spike");
-}
-
-/// The wgpu device on Metal, Vulkan or DX12 (traces need storage buffers in vertex shaders,
-/// which OpenGL lacks), created once and shared by every window rendered on a GPU, as
-/// `render`'s tests share theirs; `None` without such an adapter.
-///
-/// One instance and device per window, created and dropped by several tests at once,
-/// crashed lavapipe (Mesa's software Vulkan driver, which CI uses on Linux) now and then
-/// with a segfault that took the whole test binary down.
-fn shared_gpu() -> Option<&'static egui_wgpu::WgpuSetupExisting> {
-    use eframe::egui_wgpu::wgpu;
-    static GPU: OnceLock<Option<egui_wgpu::WgpuSetupExisting>> = OnceLock::new();
-    GPU.get_or_init(|| {
-        let mut desc = wgpu::InstanceDescriptor::new_without_display_handle_from_env();
-        desc.backends = wgpu::Backends::PRIMARY;
-        let instance = wgpu::Instance::new(desc);
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .ok()?;
-        // The device eframe would ask for.
-        let device_descriptor =
-            egui_wgpu::WgpuSetupCreateNew::without_display_handle().device_descriptor;
-        let (device, queue) =
-            pollster::block_on(adapter.request_device(&device_descriptor(&adapter))).ok()?;
-        Some(egui_wgpu::WgpuSetupExisting {
-            instance,
-            adapter,
-            device,
-            queue,
-        })
-    })
-    .as_ref()
 }
 
 /// kittest's wgpu setup on the shared GPU (see [`shared_gpu`]), or `None` without one: the
