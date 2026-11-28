@@ -153,3 +153,36 @@ fn scrolling_and_no_time_move_rows_at_once() {
     assert!(!motion.follow(&view, 0.2, 0.0));
     assert_eq!(drawn(&view, &motion.rows(&view)), settled(&view));
 }
+
+#[test]
+fn rows_slide_to_a_channel_jumped_to() {
+    let (mut view, mut motion) = start();
+    assert!(view.reveal(ChannelId(6)));
+    assert_eq!(view.top(), 3.0);
+    assert!(motion.follow(&view, 1.0, SECONDS));
+    assert_eq!(ids(&motion.rows(&view)), [0, 1, 2, 3]);
+    let half = at(&mut motion, &view, 1.1);
+    let six = slot(&half, 6);
+    assert!(six.top > 0.75 && six.top < 1.0, "{six:?}");
+    assert_eq!(six.height, 0.25);
+    assert!(close(slot(&half, 5).top + 0.25, six.top));
+    assert!(!motion.follow(&view, 1.25, SECONDS));
+    assert_eq!(drawn(&view, &motion.rows(&view)), settled(&view));
+    // A reveal of a row on screen doesn't move anything.
+    assert!(view.reveal(ChannelId(4)));
+    assert!(!motion.follow(&view, 2.0, SECONDS));
+}
+
+#[test]
+fn a_jump_of_more_than_a_screen_sets_off_a_screen_away() {
+    let mut view = ViewState::new(&recording(40, 60));
+    view.set_rows(4);
+    let mut motion = RowMotion::new();
+    motion.follow(&view, 0.0, SECONDS);
+    assert!(view.scroll_to(ChannelId(30)));
+    assert!(motion.follow(&view, 1.0, SECONDS));
+    assert_eq!(ids(&motion.rows(&view)), [26, 27, 28, 29]);
+    assert!(close(motion.slot(ChannelId(30)).top, 1.0));
+    motion.follow(&view, 1.25, SECONDS);
+    assert_eq!(ids(&motion.rows(&view)), [30, 31, 32, 33]);
+}

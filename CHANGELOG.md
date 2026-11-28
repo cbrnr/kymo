@@ -6,6 +6,7 @@
 - Limit the disk cache in Settings (5 GB by default, or unlimited), removing the overviews of the recordings used longest ago beyond it, keep them only until Kymo quits with Session, or keep overviews in memory and write nothing with Off ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🌀 Changed
+- Scroll the traces smoothly to a channel, type or stream clicked in the sidebar ([#32](https://github.com/cbrnr/kymo/pull/32) by [Clemens Brunner](https://github.com/cbrnr)).
 - Animate rows when channels are shown or hidden: a hidden channel's row folds shut while the others slide into its place, with annotations and scale bars following (Settings → Animations) ([#32](https://github.com/cbrnr/kymo/pull/32) by [Clemens Brunner](https://github.com/cbrnr)).
 - Scroll the traces to a channel when its name in the sidebar is clicked without selecting it, which a click elsewhere on its row (or with ⌘ or ⇧) still does ([#33](https://github.com/cbrnr/kymo/pull/33) by [Clemens Brunner](https://github.com/cbrnr)).
 - Name the channel next to its values in a measurement's details in the status line, after the times, as everywhere else ([#27](https://github.com/cbrnr/kymo/pull/27) by [Clemens Brunner](https://github.com/cbrnr)).

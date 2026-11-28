@@ -82,7 +82,7 @@ pub fn settings_window(
                             ui.end_row();
                             hint(
                                 ui,
-                                "Move rows into place when channels are shown or hidden.",
+                                "Move rows into place when channels are shown, hidden or scrolled to.",
                             );
                             let label = ui.label(CHANNEL_TYPES);
                             if ui.button(EDIT_TYPES).labelled_by(label.id).clicked() {

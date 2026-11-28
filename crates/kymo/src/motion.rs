@@ -1,6 +1,7 @@
 //! Rows moving to their new places when the rows change (channels shown, hidden or
 //! reordered): a row that goes collapses, its trace flattening and fading out, while the
-//! others slide and resize into the room; a row that comes back opens the other way.
+//! others slide and resize into the room; a row that comes back opens the other way. Rows
+//! slide likewise after a jump to a channel (see [`ViewState::jumps`]).
 
 use kymo_core::ChannelId;
 
@@ -48,6 +49,7 @@ struct Layout {
     place: Vec<usize>,
     top: f64,
     on_screen: f64,
+    jumps: u64,
 }
 
 impl Layout {
@@ -63,6 +65,7 @@ impl Layout {
             place,
             top: view.top(),
             on_screen: view.rows() as f64,
+            jumps: view.jumps(),
         }
     }
 
@@ -108,18 +111,28 @@ impl RowMotion {
     }
 
     /// Follows `view` at time `now` (seconds): when its rows changed since the last call,
-    /// they set off from where they are drawn now, to arrive after `seconds` (at once for
-    /// 0). Scrolling and zooming move them at once, wherever they are going. Returns
-    /// whether they are still moving.
+    /// or it jumped to a channel, they set off from where they are drawn now, to arrive
+    /// after `seconds` (at once for 0); a jump of more than a screen sets off a screen
+    /// away, so its rows don't rush by. Other scrolling and zooming move them at once,
+    /// wherever they are going. Returns whether they are still moving.
     pub fn follow(&mut self, view: &ViewState, now: f64, seconds: f64) -> bool {
         let then = std::mem::replace(&mut self.now, now);
         self.started = false;
         match &mut self.layout {
-            Some(layout) if layout.rows == view.row_channels() && layout.order == view.order() => {
+            Some(layout)
+                if layout.rows == view.row_channels()
+                    && layout.order == view.order()
+                    && layout.jumps == view.jumps() =>
+            {
                 layout.top = view.top();
                 layout.on_screen = view.rows() as f64;
             }
-            Some(_) => {
+            Some(layout) => {
+                let jump = layout.rows == view.row_channels() && layout.order == view.order();
+                if jump && self.from.is_empty() {
+                    let screen = view.rows() as f64;
+                    layout.top = layout.top.clamp(view.top() - screen, view.top() + screen);
+                }
                 // From where the last frame drew them.
                 self.now = then;
                 let from = (0..view.order().len() as u32)

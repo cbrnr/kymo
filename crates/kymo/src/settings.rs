@@ -151,8 +151,8 @@ pub struct Settings {
     /// Ubuntu Light, is thin and looks foreign there.
     pub system_font: bool,
     /// Whether Kymo's own animations play (for now, rows moving to their new places when
-    /// channels are shown or hidden) instead of changes showing at once; egui's (fades,
-    /// scrollbars) don't follow it.
+    /// channels are shown, hidden or scrolled to from the sidebar) instead of changes
+    /// showing at once; egui's (fades, scrollbars) don't follow it.
     pub animations: bool,
     /// Whether Kymo asks GitHub for a newer release at startup, at most once a day (see
     /// [`crate::update`]).
