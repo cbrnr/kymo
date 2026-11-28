@@ -1495,7 +1495,8 @@ impl Viewer {
             let visuals = ui.visuals();
             self.draw_trace_dots(&overlay, traces, channel, &[time], size_px[0], visuals);
             let start = (channel, time);
-            self.draw_start_value(&overlay, traces, start, size_px[0], &small, visuals);
+            let fonts = [&body, &small];
+            self.draw_start_value(&overlay, traces, start, size_px[0], fonts, visuals);
         }
 
         // Channel names, centered on their rows, shortened in the middle where too long.
@@ -1689,16 +1690,16 @@ impl Viewer {
         (rows.contains(y) && traces.x_range().contains(x)).then(|| pos2(x, y))
     }
 
-    /// The reading where a ⇧-drag would start, on a plate next to its dot (or, where the
-    /// time reads an envelope or the trace is off its row, at the row's middle): as the
-    /// status line and the measurement read it.
+    /// Where a ⇧-drag would start, on a plate next to its dot (or, where the time reads an
+    /// envelope or the trace is off its row, at the row's middle): its time, then the
+    /// channel and its reading as the status line and the measurement read it.
     fn draw_start_value(
         &self,
         painter: &egui::Painter,
         traces: Rect,
         (channel, time): (ChannelId, f64),
         width_px: u32,
-        font: &FontId,
+        [body, small]: [&FontId; 2],
         visuals: &egui::Visuals,
     ) {
         let rec = &self.document.recording;
@@ -1721,9 +1722,23 @@ impl Viewer {
                 pos2(x, y.clamp(traces.top(), traces.bottom()))
             }
         };
+        // As the measurement's label: the time, then the channel and its reading.
         let color = visuals.strong_text_color();
-        let galley =
-            painter.layout_no_wrap(status::reading_text(reading, &unit), font.clone(), color);
+        let mut job = LayoutJob::default();
+        let clock = Clock::for_end(self.view.duration());
+        let decimals = status::time_decimals(rec.sfreq());
+        let at = axis::format_time(time, decimals, clock) + "\n";
+        job.append(&at, 0.0, TextFormat::simple(body.clone(), color));
+        let name = &rec.channel(channel).name;
+        job.append(
+            name,
+            0.0,
+            TextFormat::simple(small.clone(), visuals.text_color()),
+        );
+        let value = format!(" {}", status::reading_text(reading, &unit));
+        let format = TextFormat::simple(small.clone(), color);
+        job.append(&value, MEASURE_LABEL_SPACE, format);
+        let galley = painter.layout_job(job);
         let margin = vec2(MEASURE_LABEL_MARGIN, 2.0);
         let size = galley.size() + 2.0 * margin;
         let plate = Rect::from_min_size(

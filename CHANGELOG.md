@@ -2,10 +2,11 @@
 
 ## [UNRELEASED] · 2026-11-28
 ### ✨ Added
-- Show the value of the sample under the pointer next to it while ⇧ (Shift) is held over the traces ([#27](https://github.com/cbrnr/kymo/pull/27) by [Clemens Brunner](https://github.com/cbrnr)).
+- Show the time, channel and value of the sample under the pointer next to it while ⇧ (Shift) is held over the traces ([#27](https://github.com/cbrnr/kymo/pull/27) by [Clemens Brunner](https://github.com/cbrnr)).
 - Limit the disk cache in Settings (5 GB by default, or unlimited), removing the overviews of the recordings used longest ago beyond it, keep them only until Kymo quits with Session, or keep overviews in memory and write nothing with Off ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🌀 Changed
+- Name the channel next to its values in a measurement's details in the status line, after the times, as everywhere else ([#27](https://github.com/cbrnr/kymo/pull/27) by [Clemens Brunner](https://github.com/cbrnr)).
 - Show the minimap by default ([#26](https://github.com/cbrnr/kymo/pull/26) by [Clemens Brunner](https://github.com/cbrnr)).
 - Show the recent recordings on the start screen, opened with a click, instead of the file dialog when Kymo starts without a recording ([#25](https://github.com/cbrnr/kymo/pull/25) by [Clemens Brunner](https://github.com/cbrnr)).
 - Show the reader's warnings in the sidebar in the warning color instead of with a warning sign, as Settings shows its warning ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).

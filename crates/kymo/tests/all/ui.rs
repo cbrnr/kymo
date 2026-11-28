@@ -8682,10 +8682,12 @@ fn settled_details(harness: &mut Harness<'_, KymoApp>, pos: egui::Pos2) -> Strin
     }
 }
 
-/// The numbers of the readings part of a measurement's details ("1.5 µV → −2 µV, Δ
+/// The numbers of the readings part of a measurement's details ("Cz 1.5 µV → −2 µV, Δ
 /// −3.5 µV"), with the unit of the first.
 fn measured_numbers(details: &str) -> (Vec<f64>, String) {
+    // The channel's name, then its values.
     let values = details.rsplit(" \u{b7} ").next().unwrap();
+    let values = values.split_once(' ').unwrap().1;
     let mut unit = String::new();
     let numbers = values
         .split([' ', ',', '\u{2192}', '\u{394}', '\u{2026}'])
@@ -8840,7 +8842,7 @@ fn shift_dragging_measures_time_and_values() {
     let at = at_time(&harness, 3.0, dy);
     let details = settled_details(&mut harness, at);
     assert!(
-        details.starts_with("Cz 0:02.05 to 0:05.25 \u{b7} 3.20 s (64 samples at 20 Hz) \u{b7} "),
+        details.starts_with("0:02.05 to 0:05.25 \u{b7} 3.20 s (64 samples at 20 Hz) \u{b7} Cz "),
         "{details}"
     );
     let (a, b) = (samples[0] * factor, samples[64] * factor);
@@ -9176,7 +9178,9 @@ fn zoomed_out_the_amplitude_stays_exact_and_the_ends_read_envelopes() {
         details.contains(&format!(" ({samples} samples at 512 Hz) ")),
         "{details}"
     );
+    // The channel's name, then its values.
     let values = details.rsplit(" \u{b7} ").next().unwrap();
+    let values = values.split_once(' ').unwrap().1;
     assert_eq!(values.matches('\u{2026}').count(), 2, "{details}");
     assert!(!values.contains('\u{394}'), "{details}");
     // No dots on envelopes.
