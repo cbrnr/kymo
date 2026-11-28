@@ -282,8 +282,8 @@ pub struct Viewer {
     saved_to: Option<std::path::PathBuf>,
     /// Where the channels were saved or loaded from last.
     channels_path: Option<std::path::PathBuf>,
-    /// The measurement on screen, and the one a ⇧-drag is making (shown once it reaches
-    /// [`MIN_DRAG`]).
+    /// The measurement on screen, and the one a ⇧-drag is making (shown once its ends
+    /// are apart).
     measurement: Option<Measurement>,
     measuring: Option<Measurement>,
     /// The measurement's label's width at the last frame, to place it beside the band.
@@ -1494,6 +1494,9 @@ impl Viewer {
         if let Some((channel, time)) = self.measure_start {
             let visuals = ui.visuals();
             self.draw_trace_dots(&overlay, traces, channel, &[time], size_px[0], visuals);
+            let start = (channel, time);
+            let fonts = [&body, &small];
+            self.draw_start_value(&overlay, traces, start, size_px[0], fonts, visuals);
         }
 
         // Channel names, centered on their rows, shortened in the middle where too long.
@@ -1640,11 +1643,24 @@ impl Viewer {
         width_px: u32,
         visuals: &egui::Visuals,
     ) {
-        let Some(row) = self.view.row_of(channel) else {
-            return;
-        };
+        for &t in times {
+            if let Some(at) = self.trace_point(traces, channel, t, width_px) {
+                painter.circle(
+                    at,
+                    MEASURE_DOT,
+                    visuals.strong_text_color(),
+                    Stroke::new(1.0, visuals.extreme_bg_color),
+                );
+            }
+        }
+    }
+
+    /// Where `channel`'s trace is at time `t` on screen: where its row is shown, `t` reads
+    /// a value (not an envelope) and the point is within its row's clip.
+    fn trace_point(&self, traces: Rect, channel: ChannelId, t: f64, width_px: u32) -> Option<Pos2> {
+        let row = self.view.row_of(channel)?;
         if !self.view.visible_rows().contains(&row) {
-            return;
+            return None;
         }
         let rec = &self.document.recording;
         let height = f64::from(traces.height());
@@ -1652,7 +1668,7 @@ impl Viewer {
         let center = self.view.y_of_row(row as f64 + 0.5, height);
         let amplitude = self.view.channel_amplitude(channel);
         if !(amplitude > 0.0 && amplitude.is_finite()) {
-            return;
+            return None;
         }
         let per_unit = row_height / (2.0 * amplitude);
         let baseline = self.baseline(channel);
@@ -1664,25 +1680,74 @@ impl Viewer {
             traces.y_range()
         };
         let view = self.view.tile_view(width_px);
-        let width = f64::from(traces.width());
-        for &t in times {
-            let Some(readout::Reading::Value(v)) =
-                readout::read(rec, self.service().cache(), &view, channel, t)
-            else {
-                continue;
-            };
-            let y = traces.top() + (center - (v - baseline) * per_unit) as f32;
-            let x = traces.left() + self.view.x_at(t, width) as f32;
-            if rows.contains(y) && traces.x_range().contains(x) {
-                let at = pos2(x, y);
-                painter.circle(
-                    at,
-                    MEASURE_DOT,
-                    visuals.strong_text_color(),
-                    Stroke::new(1.0, visuals.extreme_bg_color),
-                );
+        let Some(readout::Reading::Value(v)) =
+            readout::read(rec, self.service().cache(), &view, channel, t)
+        else {
+            return None;
+        };
+        let y = traces.top() + (center - (v - baseline) * per_unit) as f32;
+        let x = traces.left() + self.view.x_at(t, f64::from(traces.width())) as f32;
+        (rows.contains(y) && traces.x_range().contains(x)).then(|| pos2(x, y))
+    }
+
+    /// Where a ⇧-drag would start, on a plate next to its dot (or, where the time reads an
+    /// envelope or the trace is off its row, at the row's middle): its time, then the
+    /// channel and its reading as the status line and the measurement read it.
+    fn draw_start_value(
+        &self,
+        painter: &egui::Painter,
+        traces: Rect,
+        (channel, time): (ChannelId, f64),
+        width_px: u32,
+        [body, small]: [&FontId; 2],
+        visuals: &egui::Visuals,
+    ) {
+        let rec = &self.document.recording;
+        let view = self.view.tile_view(width_px);
+        let (unit, factor) = reading_unit(rec, &self.view, channel);
+        let Some(reading) = readout::read(rec, self.service().cache(), &view, channel, time)
+            .map(|r| r.relative_to(self.baseline(channel)).scaled(factor))
+        else {
+            return;
+        };
+        let anchor = match self.trace_point(traces, channel, time, width_px) {
+            Some(at) => at,
+            None => {
+                let Some(row) = self.view.row_of(channel) else {
+                    return;
+                };
+                let height = f64::from(traces.height());
+                let y = traces.top() + self.view.y_of_row(row as f64 + 0.5, height) as f32;
+                let x = traces.left() + self.view.x_at(time, f64::from(traces.width())) as f32;
+                pos2(x, y.clamp(traces.top(), traces.bottom()))
             }
-        }
+        };
+        // As the measurement's label: the time, then the channel and its reading.
+        let color = visuals.strong_text_color();
+        let mut job = LayoutJob::default();
+        let clock = Clock::for_end(self.view.duration());
+        let decimals = status::time_decimals(rec.sfreq());
+        let at = axis::format_time(time, decimals, clock) + "\n";
+        job.append(&at, 0.0, TextFormat::simple(body.clone(), color));
+        let name = &rec.channel(channel).name;
+        job.append(
+            name,
+            0.0,
+            TextFormat::simple(small.clone(), visuals.text_color()),
+        );
+        let value = format!(" {}", status::reading_text(reading, &unit));
+        let format = TextFormat::simple(small.clone(), color);
+        job.append(&value, MEASURE_LABEL_SPACE, format);
+        let galley = painter.layout_job(job);
+        let margin = vec2(MEASURE_LABEL_MARGIN, 2.0);
+        let size = galley.size() + 2.0 * margin;
+        let plate = Rect::from_min_size(
+            measure::value_label_pos(anchor, size, traces, MEASURE_LABEL_GAP),
+            size,
+        );
+        let fill = visuals.extreme_bg_color.gamma_multiply(LABEL_PLATE_ALPHA);
+        painter.rect_filled(plate, 2.0, fill);
+        painter.galley(plate.min + margin, galley, color);
     }
 
     /// The smallest and largest physical value of `channel` in the band, exact; `None`
@@ -1829,8 +1894,17 @@ impl Viewer {
         });
         let channel_keys =
             ui.input(|i| i.modifiers.shift && i.modifiers.alt && keymap.command(i.modifiers));
-        if response.drag_started()
+        // A ⇧-press starts measuring at once, not when egui would call it a drag (after
+        // some distance or time, in case it is a click), so the band follows the pointer
+        // from the press on.
+        let (pressed, down, pointer) = ui.input(|i| {
+            let p = &i.pointer;
+            (p.primary_pressed(), p.primary_down(), p.interact_pos())
+        });
+        if pressed
             && shift
+            && response.hovered()
+            && self.measuring.is_none()
             && let Some(origin) = ui.input(|i| i.pointer.press_origin())
         {
             self.finish_drag();
@@ -1846,21 +1920,20 @@ impl Viewer {
                     }
                 });
         }
-        // Any click removes the measurement (and in annotation mode selects as ever).
-        if response.clicked() {
+        // Any other click removes the measurement (and in annotation mode selects as ever).
+        if response.clicked() && self.measuring.is_none() {
             self.measurement = None;
         }
         if let Some(making) = &mut self.measuring {
-            if response.dragged()
-                && let Some(p) = response.interact_pointer_pos()
-            {
+            if let Some(p) = pointer.filter(|_| down) {
                 let x = f64::from(p.x - traces.left());
                 let duration = self.view.duration();
                 making.reach = self.view.time_at(x, area.width).clamp(0.0, duration);
-                let reach = x - self.view.x_at(making.press, area.width);
-                self.measurement = (reach.abs() >= f64::from(MIN_DRAG)).then_some(*making);
+                // Shown once its ends are apart; until then the dot marks its start.
+                let span = making.span(&self.document.recording);
+                self.measurement = (span.end > span.start).then_some(*making);
             }
-            if response.drag_stopped() {
+            if !down {
                 self.measuring = None;
             }
         } else if self.editing {
@@ -1875,16 +1948,26 @@ impl Viewer {
         }
         // Where a ⇧-drag would start: the sample nearest the pointer on the channel it
         // would measure.
-        self.measure_start = (shift && response.hovered() && self.measuring.is_none())
-            .then(|| response.hover_pos())
-            .flatten()
-            .and_then(|p| {
-                let channel = self.channel_near(f64::from(p.y - traces.top()), area.height)?;
+        self.measure_start = match self.measuring {
+            Some(m) if self.measurement.is_none() => {
                 let rec = &self.document.recording;
-                let grid = rec.grid(rec.channel(channel).grid);
-                let time = self.time_at_x(f64::from(p.x - traces.left()), area.width);
-                Some((channel, measure::snap(grid, time)))
-            });
+                Some((
+                    m.channel,
+                    measure::snap(rec.grid(rec.channel(m.channel).grid), m.press),
+                ))
+            }
+            Some(_) => None,
+            None => (shift && response.hovered())
+                .then(|| response.hover_pos())
+                .flatten()
+                .and_then(|p| {
+                    let channel = self.channel_near(f64::from(p.y - traces.top()), area.height)?;
+                    let rec = &self.document.recording;
+                    let grid = rec.grid(rec.channel(channel).grid);
+                    let time = self.time_at_x(f64::from(p.x - traces.left()), area.width);
+                    Some((channel, measure::snap(grid, time)))
+                }),
+        };
         let scaled = (channel_keys && response.hovered() && self.measuring.is_none())
             .then(|| response.hover_pos())
             .flatten()

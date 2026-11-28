@@ -8682,10 +8682,12 @@ fn settled_details(harness: &mut Harness<'_, KymoApp>, pos: egui::Pos2) -> Strin
     }
 }
 
-/// The numbers of the readings part of a measurement's details ("1.5 µV → −2 µV, Δ
+/// The numbers of the readings part of a measurement's details ("Cz 1.5 µV → −2 µV, Δ
 /// −3.5 µV"), with the unit of the first.
 fn measured_numbers(details: &str) -> (Vec<f64>, String) {
+    // The channel's name, then its values.
     let values = details.rsplit(" \u{b7} ").next().unwrap();
+    let values = values.split_once(' ').unwrap().1;
     let mut unit = String::new();
     let numbers = values
         .split([' ', ',', '\u{2192}', '\u{394}', '\u{2026}'])
@@ -8760,6 +8762,37 @@ fn samples_of(
     out.into_iter().map(f64::from).collect()
 }
 
+/// A ⇧-drag measures from the press on, before egui would call it a drag (it waits for
+/// 6 points in case it is a click), with the button still down.
+#[test]
+fn shift_dragging_measures_from_the_press_on() {
+    let file = slow_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let dy = first_row(&harness);
+    let from = at_time(&harness, 5.249, dy);
+    let to = from + egui::vec2(4.0, 0.0);
+    // The 4 points reach the next sample, 50 ms on.
+    let reached = at_time(&harness, 5.3, dy);
+    assert!(reached.x < to.x, "{reached:?} vs {to:?}");
+    harness.event(egui::Event::ModifiersChanged(Modifiers::SHIFT));
+    hover(&mut harness, from);
+    harness.drag_at(from);
+    harness.step();
+    // Pressed, not moved: nothing to show beyond the dot yet.
+    assert_eq!(viewer(&harness).measurement(), None);
+    hover(&mut harness, to);
+    let measurement = viewer(&harness).measurement().expect("measuring");
+    let span = measurement.span(&viewer(&harness).document().recording);
+    assert_eq!(span.start, 5.25);
+    assert!(span.end > span.start, "{span:?}");
+    harness.drop_at(to);
+    harness.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    harness.step();
+    // Released before it moved 6 points, it is no click: the measurement stays.
+    assert!(viewer(&harness).measurement().is_some());
+}
+
 #[test]
 fn shift_dragging_measures_time_and_values() {
     let file = slow_preset();
@@ -8809,7 +8842,7 @@ fn shift_dragging_measures_time_and_values() {
     let at = at_time(&harness, 3.0, dy);
     let details = settled_details(&mut harness, at);
     assert!(
-        details.starts_with("Cz 0:02.05 to 0:05.25 \u{b7} 3.20 s (64 samples at 20 Hz) \u{b7} "),
+        details.starts_with("0:02.05 to 0:05.25 \u{b7} 3.20 s (64 samples at 20 Hz) \u{b7} Cz "),
         "{details}"
     );
     let (a, b) = (samples[0] * factor, samples[64] * factor);
@@ -9145,7 +9178,9 @@ fn zoomed_out_the_amplitude_stays_exact_and_the_ends_read_envelopes() {
         details.contains(&format!(" ({samples} samples at 512 Hz) ")),
         "{details}"
     );
+    // The channel's name, then its values.
     let values = details.rsplit(" \u{b7} ").next().unwrap();
+    let values = values.split_once(' ').unwrap().1;
     assert_eq!(values.matches('\u{2026}').count(), 2, "{details}");
     assert!(!values.contains('\u{394}'), "{details}");
     // No dots on envelopes.

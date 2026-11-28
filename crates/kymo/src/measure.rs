@@ -4,6 +4,7 @@
 
 use std::ops::Range;
 
+use eframe::egui::{Pos2, Rect, Vec2, pos2};
 use kymo_core::{ChannelId, Grid, Recording};
 
 use crate::ui::axis::{Clock, format_time};
@@ -105,6 +106,28 @@ pub fn snap(grid: &Grid, time: f64) -> f64 {
     }
 }
 
+/// Where a value label `size` large goes next to the point `anchor` it reads, `gap` away:
+/// its top-left corner. Above and right of the point, else left of it where it would
+/// leave `area` on the right, else below it where it would leave it at the top; within
+/// `area` as far as it fits.
+pub fn value_label_pos(anchor: Pos2, size: Vec2, area: Rect, gap: f32) -> Pos2 {
+    let right = anchor.x + gap;
+    let x = if right + size.x <= area.right() {
+        right
+    } else {
+        anchor.x - gap - size.x
+    };
+    let above = anchor.y - gap - size.y;
+    let y = if above >= area.top() {
+        above
+    } else {
+        anchor.y + gap
+    };
+    let x = x.min(area.right() - size.x).max(area.left());
+    let y = y.min(area.bottom() - size.y).max(area.top());
+    pos2(x, y)
+}
+
 /// The sample of a non-empty `grid` nearest to `time`, its first or last beyond them.
 pub fn nearest_sample(grid: &Grid, time: f64) -> u64 {
     let last = grid.len() - 1;
@@ -144,10 +167,11 @@ pub fn amplitude_text(peak_to_peak: Option<f64>, unit: &str) -> String {
     }
 }
 
-/// The status line's account of a measurement: "Fz 0:12.500 to 0:13.750 · 1.250 s (320
-/// samples at 256 Hz) · 12.30 µV → −4.100 µV, Δ −16.40 µV", the ends' times on `clock`, the
-/// samples between them where the grid has them, and the readings at the ends in `unit`
-/// with their difference where both are values (an envelope's has none).
+/// The status line's account of a measurement: "0:12.500 to 0:13.750 · 1.250 s (320
+/// samples at 256 Hz) · Fz 12.30 µV → −4.100 µV, Δ −16.40 µV", the ends' times on `clock`,
+/// the samples between them where the grid has them, and the channel's readings at the
+/// ends in `unit` with their difference where both are values (an envelope's has none):
+/// time, then channel and values, as everywhere.
 pub fn details_text(
     name: &str,
     span: &Span,
@@ -157,7 +181,7 @@ pub fn details_text(
 ) -> String {
     let decimals = time_decimals(span.rate);
     let times = format!(
-        "{name} {} to {}",
+        "{} to {}",
         format_time(span.start, decimals, clock),
         format_time(span.end, decimals, clock)
     );
@@ -167,7 +191,7 @@ pub fn details_text(
         interval += &format!(" ({n} {samples} at {})", rate_text(span.rate));
     }
     let text = |r: Option<Reading>| r.map_or(NO_READING.to_owned(), |r| reading_text(r, unit));
-    let mut values = format!("{} \u{2192} {}", text(ends[0]), text(ends[1]));
+    let mut values = format!("{name} {} \u{2192} {}", text(ends[0]), text(ends[1]));
     if let [Some(Reading::Value(a)), Some(Reading::Value(b))] = ends {
         values += ", \u{394} ";
         values += &format_value(b - a, unit);

@@ -184,8 +184,8 @@ fn details_name_the_ends_samples_and_values() {
     let v = |x| Some(Reading::Value(x));
     assert_eq!(
         details_text("Fz", &span, Clock::Minutes, "\u{b5}V", [v(12.3), v(-4.1)]),
-        "Fz 0:12.500 to 0:13.750 \u{b7} 1.250 s (320 samples at 256 Hz) \u{b7} \
-         12.30 \u{b5}V \u{2192} \u{2212}4.100 \u{b5}V, \u{394} \u{2212}16.40 \u{b5}V"
+        "0:12.500 to 0:13.750 \u{b7} 1.250 s (320 samples at 256 Hz) \u{b7} \
+         Fz 12.30 \u{b5}V \u{2192} \u{2212}4.100 \u{b5}V, \u{394} \u{2212}16.40 \u{b5}V"
     );
     // An envelope has no difference, nor has a missing end; one sample; a rate in full.
     let range = Some(Reading::Range {
@@ -196,14 +196,17 @@ fn details_name_the_ends_samples_and_values() {
     let span = measure(&grid, 2.0, 4.0);
     assert_eq!(
         details_text("Fz", &span, Clock::Seconds, "\u{b5}V", [range, v(1.0)]),
-        "Fz 2 s to 4 s \u{b7} 2 s (1 sample at 0.5 Hz) \u{b7} \
-         \u{2212}1.000 \u{2026} 2.000 \u{b5}V \u{2192} 1.000 \u{b5}V"
+        "2 s to 4 s \u{b7} 2 s (1 sample at 0.5 Hz) \u{b7} \
+         Fz \u{2212}1.000 \u{2026} 2.000 \u{b5}V \u{2192} 1.000 \u{b5}V"
     );
     let grid = regular(1017.25, 0.0, 10_000);
     let span = measure(&grid, 1.0, 2.0);
     let text = details_text("STI", &span, Clock::Seconds, "", [v(5.0), None]);
     assert!(text.contains(" at 1017.25 Hz) "), "{text}");
-    assert!(text.ends_with(" \u{b7} 5.000 \u{2192} \u{2013}"), "{text}");
+    assert!(
+        text.ends_with(" \u{b7} STI 5.000 \u{2192} \u{2013}"),
+        "{text}"
+    );
     // Irregular: no samples.
     let times = TimeTable::new(&[0.0, 0.3, 0.35, 1.0], 1.1).unwrap();
     let grid = Grid::continuous(
@@ -220,6 +223,37 @@ fn details_name_the_ends_samples_and_values() {
     let span = measure(&grid, 0.4, 0.9);
     assert_eq!(
         details_text("x", &span, Clock::Seconds, "", [None, None]),
-        "x 0.4 s to 0.9 s \u{b7} 500 ms \u{b7} \u{2013} \u{2192} \u{2013}"
+        "0.4 s to 0.9 s \u{b7} 500 ms \u{b7} x \u{2013} \u{2192} \u{2013}"
     );
+}
+
+#[test]
+fn value_labels_stay_beside_their_points_and_on_screen() {
+    use eframe::egui::{Rect, pos2, vec2};
+    use kymo::measure::value_label_pos;
+
+    let area = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
+    let size = vec2(60.0, 16.0);
+    // Above and right of the point.
+    assert_eq!(
+        value_label_pos(pos2(100.0, 100.0), size, area, 4.0),
+        pos2(104.0, 80.0)
+    );
+    // Left of it near the right edge, below it near the top.
+    assert_eq!(
+        value_label_pos(pos2(380.0, 100.0), size, area, 4.0),
+        pos2(316.0, 80.0)
+    );
+    assert_eq!(
+        value_label_pos(pos2(100.0, 10.0), size, area, 4.0),
+        pos2(104.0, 14.0)
+    );
+    // Within the area as far as it fits, wherever the point is.
+    for anchor in [pos2(0.0, 0.0), pos2(400.0, 300.0), pos2(30.0, 295.0)] {
+        let at = value_label_pos(anchor, size, area, 4.0);
+        assert!(
+            area.contains_rect(Rect::from_min_size(at, size)),
+            "{anchor:?}"
+        );
+    }
 }
