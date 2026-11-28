@@ -189,7 +189,7 @@ fn keys_move_the_view() {
     harness.key_press_modifiers(cmd, Key::W);
     harness.step();
     assert!(harness.state().viewer().is_none());
-    harness.get_by_label(start::PROMPT);
+    harness.get_by_label(start::TITLE);
 }
 
 fn viewer<'h>(harness: &'h Harness<'_, KymoApp>) -> &'h Viewer {
@@ -802,7 +802,7 @@ fn menu_items_act_and_disabled_ones_dont() {
     assert!(harness.state().viewer().is_none());
     // Nothing to close now.
     choose(&mut harness, "File", "Close");
-    harness.get_by_label(start::PROMPT);
+    harness.get_by_label(start::TITLE);
     assert_eq!(harness.state().error(), None);
 }
 
@@ -6971,11 +6971,16 @@ fn open_recent_reopens_recordings_and_forgets_missing_ones() {
 
 /// The window started without a recording, with `recent` opened before.
 fn start_window(recent: &[&Path]) -> Harness<'static, KymoApp> {
+    start_window_sized(recent, SIZE)
+}
+
+/// [`start_window`] of `size`.
+fn start_window_sized(recent: &[&Path], size: egui::Vec2) -> Harness<'static, KymoApp> {
     let mut list = kymo::recent::Recent::default();
     for path in recent.iter().rev() {
         list.add(path);
     }
-    Harness::builder().with_size(SIZE).build_eframe(move |cc| {
+    Harness::builder().with_size(size).build_eframe(move |cc| {
         system_fonts(&cc.egui_ctx);
         let mut app = KymoApp::new(
             &cc.egui_ctx,
@@ -7009,7 +7014,7 @@ fn the_start_screen_opens_recent_recordings_with_a_click() {
     harness.run_steps(4);
     assert!(harness.state().viewer().is_none());
     assert_eq!(harness.state().error(), None);
-    harness.get_by_label(start::PROMPT);
+    harness.get_by_label(start::TITLE);
 
     harness.get_by_label(&file_name(&second)).click();
     ready(&mut harness);
@@ -7068,6 +7073,32 @@ fn the_start_screen_removes_one_recent_recording_or_clears_them() {
     harness.run_steps(2);
     assert!(harness.state().recent().paths().is_empty());
     assert!(harness.query_by_label(&file_name(&first)).is_none());
+}
+
+#[test]
+fn a_long_recent_list_scrolls_by_itself() {
+    // Ten recordings (they needn't exist to be listed) in a short window.
+    let dir = TempDir::new();
+    let paths: Vec<PathBuf> = (0..10)
+        .map(|i| dir.path().join(format!("recording-{i}.bdf")))
+        .collect();
+    let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    let size = egui::vec2(800.0, 480.0);
+    let mut harness = start_window_sized(&refs, size);
+    harness.run_steps(4);
+    let open = harness.get_by_label("Open…").rect();
+    let last = |h: &Harness<'_, KymoApp>| h.get_by_label("recording-9.bdf").rect();
+    assert!(last(&harness).bottom() > size.y);
+
+    // Moved to with the arrow keys, the last one scrolls into sight; the rest stays put.
+    for _ in 0..10 {
+        harness.key_press(Key::ArrowDown);
+        harness.run_steps(1);
+    }
+    harness.run_steps(4);
+    assert!(last(&harness).bottom() <= size.y, "{:?}", last(&harness));
+    assert_eq!(harness.get_by_label("Open…").rect(), open);
+    assert!(harness.get_by_label(start::TITLE).rect().top() >= 0.0);
 }
 
 #[test]

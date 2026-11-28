@@ -7,14 +7,14 @@ use std::path::Path;
 
 use eframe::egui::{
     self, Align, Button, Color32, FontId, Key, Layout, Modifiers, Rect, RichText, Role, ScrollArea,
-    Sense, TextStyle, TextureHandle, Ui, WidgetInfo, vec2,
+    Sense, TextStyle, TextureHandle, Ui, UiBuilder, WidgetInfo, vec2,
 };
 
 use super::{elide_middle, text_button};
 use crate::recent::Recent;
 
-/// The subtitle without a recording.
-pub const PROMPT: &str = "Open a recording to get started";
+/// The title without a recording.
+pub const TITLE: &str = "Kymo";
 /// The title when a recording could not be opened.
 pub const FAILED: &str = "Could Not Open the Recording";
 /// The tooltip of a recent recording's ×.
@@ -41,10 +41,12 @@ pub enum Picked {
 /// The start screen's state between frames.
 #[derive(Default)]
 pub struct StartScreen {
-    /// The row the arrow keys moved to.
+    /// The row the arrow keys moved to, and whether they just did (to scroll to it).
     selected: Option<usize>,
+    moved: bool,
     icon: Option<TextureHandle>,
-    /// The column's height last frame, and its head's (down to Open…), to place it.
+    /// The column's height last frame, the whole list's included, and its head's (down to
+    /// Open…), to place it.
     height: f32,
     head: f32,
 }
@@ -76,33 +78,29 @@ impl StartScreen {
             })
             .clone();
 
-        let viewport = ui.available_size();
-        let width = (viewport.x - 32.0).clamp(0.0, WIDTH);
-        ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-            // Open… a little above the middle, the list below it, so the head stays put as
-            // the list changes; higher only where the list wouldn't fit otherwise.
-            let top = (viewport.y * 0.45 - self.head).min(viewport.y - self.height - 16.0);
-            ui.add_space(top.max(16.0));
-            let column = ui
-                .horizontal(|ui| {
-                    ui.add_space(((viewport.x - width) / 2.0).max(0.0));
-                    ui.allocate_ui_with_layout(
-                        vec2(width, 0.0),
-                        Layout::top_down(Align::Center),
-                        |ui| {
-                            ui.set_width(width);
-                            self.column(ui, &icon, recent, error, &mut picked)
-                        },
-                    )
-                })
-                .inner;
-            ui.add_space(16.0);
-            let (height, head) = (column.response.rect.height(), column.inner);
-            if (height - self.height).abs() > 0.5 || (head - self.head).abs() > 0.5 {
-                (self.height, self.head) = (height, head);
-                ui.ctx().request_repaint();
-            }
+        let area = ui.available_rect_before_wrap();
+        let width = (area.width() - 32.0).clamp(0.0, WIDTH);
+        // Open… a little above the middle, the list below it, so the head stays put as the
+        // list changes; higher where the list wouldn't fit otherwise, and the list scrolls
+        // where it still doesn't.
+        let top = (area.height() * 0.45 - self.head).min(area.height() - self.height - 16.0);
+        let column = Rect::from_min_max(
+            egui::pos2(area.center().x - width / 2.0, area.top() + top.max(16.0)),
+            egui::pos2(area.center().x + width / 2.0, area.bottom() - 16.0),
+        );
+        let builder = UiBuilder::new()
+            .max_rect(column)
+            .layout(Layout::top_down(Align::Center));
+        let shown = ui.scope_builder(builder, |ui| {
+            self.column(ui, &icon, recent, error, &mut picked)
         });
+        self.moved = false;
+        let (head, hidden) = shown.inner;
+        let height = shown.response.rect.height() + hidden;
+        if (height - self.height).abs() > 0.5 || (head - self.head).abs() > 0.5 {
+            (self.height, self.head) = (height, head);
+            ui.ctx().request_repaint();
+        }
         picked
     }
 
@@ -115,6 +113,7 @@ impl StartScreen {
                 i.consume_key(Modifiers::NONE, Key::Enter),
             )
         });
+        self.moved = down || up;
         if down {
             self.selected = Some(self.selected.map_or(0, |i| i + 1));
         }
@@ -127,7 +126,8 @@ impl StartScreen {
         None
     }
 
-    /// The column's pieces; returns its head's height, down to Open….
+    /// The column's pieces; returns its head's height, down to Open…, and how much of the
+    /// list is scrolled out of sight.
     fn column(
         &mut self,
         ui: &mut Ui,
@@ -135,15 +135,12 @@ impl StartScreen {
         recent: &Recent,
         error: Option<&str>,
         picked: &mut Option<Picked>,
-    ) -> f32 {
-        let weak = ui.visuals().weak_text_color();
+    ) -> (f32, f32) {
         ui.add(egui::Image::new((icon.id(), vec2(ICON, ICON))));
         ui.add_space(8.0);
         match error {
             None => {
-                ui.label(RichText::new("Kymo").size(28.0).strong());
-                ui.add_space(2.0);
-                ui.label(RichText::new(PROMPT).color(weak));
+                ui.label(RichText::new(TITLE).size(28.0).strong());
             }
             Some(error) => {
                 ui.heading(FAILED);
@@ -158,15 +155,17 @@ impl StartScreen {
             *picked = Some(Picked::Open);
         }
         let head = ui.min_rect().bottom() - ui.max_rect().top();
+        let mut hidden = 0.0;
         if !recent.paths().is_empty() {
             ui.add_space(36.0);
-            self.recent(ui, recent, picked);
+            hidden = self.recent(ui, recent, picked);
         }
-        head
+        (head, hidden)
     }
 
-    /// The heading with Clear, and a row per recent recording in a frame.
-    fn recent(&mut self, ui: &mut Ui, recent: &Recent, picked: &mut Option<Picked>) {
+    /// The heading with Clear, and a row per recent recording in a frame, scrolling within
+    /// the space left; returns how much of it is out of sight.
+    fn recent(&mut self, ui: &mut Ui, recent: &Recent, picked: &mut Option<Picked>) -> f32 {
         let weak = ui.visuals().weak_text_color();
         let row_height = ui.spacing().interact_size.y;
         ui.allocate_ui_with_layout(
@@ -185,30 +184,30 @@ impl StartScreen {
         );
         ui.add_space(2.0);
         let visuals = ui.visuals().clone();
-        let stroke = visuals.widgets.noninteractive.bg_stroke;
+        let margin = 4.0;
+        let space = (ui.available_height() - 2.0 * margin).max(row_height);
         egui::Frame::new()
             .fill(visuals.faint_bg_color)
-            .stroke(stroke)
+            .stroke(visuals.widgets.noninteractive.bg_stroke)
             .corner_radius(6.0)
-            .inner_margin(4.0)
+            .inner_margin(margin)
             .show(ui, |ui| {
-                ui.spacing_mut().item_spacing.y = 0.0;
-                let labels = recent.labels();
-                for (index, (path, label)) in recent.paths().iter().zip(&labels).enumerate() {
-                    if index > 0 {
-                        let (rect, _) =
-                            ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover());
-                        ui.painter().hline(
-                            rect.x_range().shrink(8.0),
-                            rect.center().y,
-                            (stroke.width, stroke.color),
-                        );
-                    }
-                    if let Some(row) = self.row(ui, index, path, label) {
-                        *picked = Some(row);
-                    }
-                }
-            });
+                let scrolled = ScrollArea::vertical()
+                    .max_height(space)
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        let labels = recent.labels();
+                        let rows = recent.paths().iter().zip(&labels).enumerate();
+                        for (index, (path, label)) in rows {
+                            if let Some(row) = self.row(ui, index, path, label) {
+                                *picked = Some(row);
+                            }
+                        }
+                    });
+                (scrolled.content_size.y - scrolled.inner_rect.height()).max(0.0)
+            })
+            .inner
     }
 
     /// One recent recording: its name over its folder, a click opening it, its × removing it.
@@ -219,6 +218,9 @@ impl StartScreen {
         let (rect, response) =
             ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::click());
         response.widget_info(|| WidgetInfo::labeled(Role::Button, true, label));
+        if self.moved && self.selected == Some(index) {
+            response.scroll_to_me(None);
+        }
         let hovered = ui.rect_contains_pointer(rect);
         // The pointer takes over from the arrow keys once it moves.
         if hovered && ui.input(|i| i.pointer.is_moving()) {
