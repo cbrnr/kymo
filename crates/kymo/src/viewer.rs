@@ -282,8 +282,8 @@ pub struct Viewer {
     saved_to: Option<std::path::PathBuf>,
     /// Where the channels were saved or loaded from last.
     channels_path: Option<std::path::PathBuf>,
-    /// The measurement on screen, and the one a ⇧-drag is making (shown once it reaches
-    /// [`MIN_DRAG`]).
+    /// The measurement on screen, and the one a ⇧-drag is making (shown once its ends
+    /// are apart).
     measurement: Option<Measurement>,
     measuring: Option<Measurement>,
     /// The measurement's label's width at the last frame, to place it beside the band.
@@ -1879,8 +1879,17 @@ impl Viewer {
         });
         let channel_keys =
             ui.input(|i| i.modifiers.shift && i.modifiers.alt && keymap.command(i.modifiers));
-        if response.drag_started()
+        // A ⇧-press starts measuring at once, not when egui would call it a drag (after
+        // some distance or time, in case it is a click), so the band follows the pointer
+        // from the press on.
+        let (pressed, down, pointer) = ui.input(|i| {
+            let p = &i.pointer;
+            (p.primary_pressed(), p.primary_down(), p.interact_pos())
+        });
+        if pressed
             && shift
+            && response.hovered()
+            && self.measuring.is_none()
             && let Some(origin) = ui.input(|i| i.pointer.press_origin())
         {
             self.finish_drag();
@@ -1896,21 +1905,20 @@ impl Viewer {
                     }
                 });
         }
-        // Any click removes the measurement (and in annotation mode selects as ever).
-        if response.clicked() {
+        // Any other click removes the measurement (and in annotation mode selects as ever).
+        if response.clicked() && self.measuring.is_none() {
             self.measurement = None;
         }
         if let Some(making) = &mut self.measuring {
-            if response.dragged()
-                && let Some(p) = response.interact_pointer_pos()
-            {
+            if let Some(p) = pointer.filter(|_| down) {
                 let x = f64::from(p.x - traces.left());
                 let duration = self.view.duration();
                 making.reach = self.view.time_at(x, area.width).clamp(0.0, duration);
-                let reach = x - self.view.x_at(making.press, area.width);
-                self.measurement = (reach.abs() >= f64::from(MIN_DRAG)).then_some(*making);
+                // Shown once its ends are apart; until then the dot marks its start.
+                let span = making.span(&self.document.recording);
+                self.measurement = (span.end > span.start).then_some(*making);
             }
-            if response.drag_stopped() {
+            if !down {
                 self.measuring = None;
             }
         } else if self.editing {
@@ -1925,16 +1933,26 @@ impl Viewer {
         }
         // Where a ⇧-drag would start: the sample nearest the pointer on the channel it
         // would measure.
-        self.measure_start = (shift && response.hovered() && self.measuring.is_none())
-            .then(|| response.hover_pos())
-            .flatten()
-            .and_then(|p| {
-                let channel = self.channel_near(f64::from(p.y - traces.top()), area.height)?;
+        self.measure_start = match self.measuring {
+            Some(m) if self.measurement.is_none() => {
                 let rec = &self.document.recording;
-                let grid = rec.grid(rec.channel(channel).grid);
-                let time = self.time_at_x(f64::from(p.x - traces.left()), area.width);
-                Some((channel, measure::snap(grid, time)))
-            });
+                Some((
+                    m.channel,
+                    measure::snap(rec.grid(rec.channel(m.channel).grid), m.press),
+                ))
+            }
+            Some(_) => None,
+            None => (shift && response.hovered())
+                .then(|| response.hover_pos())
+                .flatten()
+                .and_then(|p| {
+                    let channel = self.channel_near(f64::from(p.y - traces.top()), area.height)?;
+                    let rec = &self.document.recording;
+                    let grid = rec.grid(rec.channel(channel).grid);
+                    let time = self.time_at_x(f64::from(p.x - traces.left()), area.width);
+                    Some((channel, measure::snap(grid, time)))
+                }),
+        };
         let scaled = (channel_keys && response.hovered() && self.measuring.is_none())
             .then(|| response.hover_pos())
             .flatten()

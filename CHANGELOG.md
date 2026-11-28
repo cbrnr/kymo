@@ -14,6 +14,7 @@
 - Make scrollbars slimmer, widening them on hover ([#24](https://github.com/cbrnr/kymo/pull/24) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🔧 Fixed
+- Start a measurement as soon as the mouse button is pressed instead of after the pointer has moved a few points ([#27](https://github.com/cbrnr/kymo/pull/27) by [Clemens Brunner](https://github.com/cbrnr)).
 - Stop the channel names column from being dragged wider than its longest name needs ([#15](https://github.com/cbrnr/kymo/pull/15) by [Clemens Brunner](https://github.com/cbrnr)).
 - Stop offering to drag the channel names column's edge where it can't move, and point its cursor only the way it can go at either limit ([#19](https://github.com/cbrnr/kymo/pull/19) by [Clemens Brunner](https://github.com/cbrnr)).
 - Fix the channel list's scrollbar showing only under the pointer in the light theme ([#24](https://github.com/cbrnr/kymo/pull/24) by [Clemens Brunner](https://github.com/cbrnr)).

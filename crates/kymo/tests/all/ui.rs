@@ -8760,6 +8760,37 @@ fn samples_of(
     out.into_iter().map(f64::from).collect()
 }
 
+/// A ⇧-drag measures from the press on, before egui would call it a drag (it waits for
+/// 6 points in case it is a click), with the button still down.
+#[test]
+fn shift_dragging_measures_from_the_press_on() {
+    let file = slow_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    let dy = first_row(&harness);
+    let from = at_time(&harness, 5.249, dy);
+    let to = from + egui::vec2(4.0, 0.0);
+    // The 4 points reach the next sample, 50 ms on.
+    let reached = at_time(&harness, 5.3, dy);
+    assert!(reached.x < to.x, "{reached:?} vs {to:?}");
+    harness.event(egui::Event::ModifiersChanged(Modifiers::SHIFT));
+    hover(&mut harness, from);
+    harness.drag_at(from);
+    harness.step();
+    // Pressed, not moved: nothing to show beyond the dot yet.
+    assert_eq!(viewer(&harness).measurement(), None);
+    hover(&mut harness, to);
+    let measurement = viewer(&harness).measurement().expect("measuring");
+    let span = measurement.span(&viewer(&harness).document().recording);
+    assert_eq!(span.start, 5.25);
+    assert!(span.end > span.start, "{span:?}");
+    harness.drop_at(to);
+    harness.event(egui::Event::ModifiersChanged(Modifiers::NONE));
+    harness.step();
+    // Released before it moved 6 points, it is no click: the measurement stays.
+    assert!(viewer(&harness).measurement().is_some());
+}
+
 #[test]
 fn shift_dragging_measures_time_and_values() {
     let file = slow_preset();
