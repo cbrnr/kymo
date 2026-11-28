@@ -23,7 +23,7 @@ use kymo::ui::gpu::Gpu;
 use kymo::ui::palette::{annotation_color, trace_color};
 use kymo::ui::settings::{DISK_CACHE_HINT, disk_cache_off_warning};
 use kymo::ui::types::{ALL_TYPES, CHANGE_TYPE, FROM_FILE, NEW_TYPE, OTHER_TYPES};
-use kymo::ui::{minimap, scrollbar, status};
+use kymo::ui::{minimap, scrollbar, start, status};
 use kymo::update::{Release, Source, UpdateState};
 use kymo::viewer::Viewer;
 use kymo_core::ChannelKind;
@@ -189,7 +189,7 @@ fn keys_move_the_view() {
     harness.key_press_modifiers(cmd, Key::W);
     harness.step();
     assert!(harness.state().viewer().is_none());
-    harness.get_by_label("No Recording Open");
+    harness.get_by_label(start::TITLE);
 }
 
 fn viewer<'h>(harness: &'h Harness<'_, KymoApp>) -> &'h Viewer {
@@ -802,7 +802,7 @@ fn menu_items_act_and_disabled_ones_dont() {
     assert!(harness.state().viewer().is_none());
     // Nothing to close now.
     choose(&mut harness, "File", "Close");
-    harness.get_by_label("No Recording Open");
+    harness.get_by_label(start::TITLE);
     assert_eq!(harness.state().error(), None);
 }
 
@@ -5436,8 +5436,8 @@ fn system_follows_the_app_mode_where_it_is_read() {
 
 #[test]
 fn the_theme_is_in_force_before_the_first_frame() {
-    // The startup file dialog opens while the second frame is built and leaves the first
-    // on screen, so that has to be in the theme already (egui's default is dark).
+    // The first frame has to be in the theme already, or the window flashes in egui's
+    // default (dark).
     use egui::Theme as Look;
     let app = |theme| {
         let options = Options {
@@ -6850,11 +6850,9 @@ fn files_handed_over_by_the_system_open_as_dropped_ones() {
     std::fs::write(&events, "onset\tduration\ttrial_type\n1.5\t1\thanded\n").unwrap();
     let inbox = std::sync::Arc::new(kymo::opened::Inbox::new());
     // Started without a recording, as Finder starts an app bundle, with the file it was
-    // started for already handed over: it opens instead of the file dialog (which would
-    // pick `other`).
+    // started for already handed over: it opens.
     inbox.push([file.path().to_owned()]);
     let receiving = inbox.clone();
-    let picked = other.path().to_owned();
     let mut harness = Harness::builder().with_size(SIZE).build_eframe(move |cc| {
         system_fonts(&cc.egui_ctx);
         let mut app = KymoApp::new(
@@ -6863,7 +6861,6 @@ fn files_handed_over_by_the_system_open_as_dropped_ones() {
             options(),
             None,
         );
-        app.answer_file_dialogs([Some(picked)]);
         app.receive_opened(&cc.egui_ctx, receiving);
         app
     });
@@ -6970,6 +6967,182 @@ fn open_recent_reopens_recordings_and_forgets_missing_ones() {
             .accesskit_node()
             .is_disabled()
     );
+}
+
+/// The window started without a recording, with `recent` opened before.
+fn start_window(recent: &[&Path]) -> Harness<'static, KymoApp> {
+    start_window_sized(recent, SIZE)
+}
+
+/// [`start_window`] of `size`.
+fn start_window_sized(recent: &[&Path], size: egui::Vec2) -> Harness<'static, KymoApp> {
+    let mut list = kymo::recent::Recent::default();
+    for path in recent.iter().rev() {
+        list.add(path);
+    }
+    Harness::builder().with_size(size).build_eframe(move |cc| {
+        system_fonts(&cc.egui_ctx);
+        let mut app = KymoApp::new(
+            &cc.egui_ctx,
+            Gpu::none("no GPU in this test"),
+            Options {
+                recent: list,
+                ..options()
+            },
+            None,
+        );
+        // A file dialog would pick nothing.
+        app.answer_file_dialogs([]);
+        app
+    })
+}
+
+fn file_name(file: &TempFile) -> String {
+    file.path()
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned()
+}
+
+#[test]
+fn the_start_screen_opens_recent_recordings_with_a_click() {
+    let first = without_triggers("bdf+c-small");
+    let second = TempFile::preset("bdf+c-small");
+    let mut harness = start_window(&[first.path(), second.path()]);
+    // No file dialog: the start screen waits.
+    harness.run_steps(4);
+    assert!(harness.state().viewer().is_none());
+    assert_eq!(harness.state().error(), None);
+    harness.get_by_label(start::TITLE);
+
+    harness.get_by_label(&file_name(&second)).click();
+    ready(&mut harness);
+    assert_eq!(viewer(&harness).document().path, second.path());
+    assert_eq!(
+        harness.state().recent().paths(),
+        [second.path(), first.path()]
+    );
+}
+
+#[test]
+fn the_start_screen_opens_the_recent_recording_moved_to_with_the_arrow_keys() {
+    let first = without_triggers("bdf+c-small");
+    let second = TempFile::preset("bdf+c-small");
+    let mut harness = start_window(&[first.path(), second.path()]);
+    harness.run_steps(2);
+    let keys = |h: &mut Harness<'_, KymoApp>, keys: &[Key]| {
+        for &key in keys {
+            h.key_press(key);
+            h.run_steps(1);
+        }
+    };
+    // Return opens nothing until a row is moved to; ↓ stops at the last.
+    keys(&mut harness, &[Key::Enter]);
+    harness.run_steps(2);
+    harness.get_by_label(start::TITLE);
+    keys(
+        &mut harness,
+        &[Key::ArrowDown, Key::ArrowDown, Key::ArrowDown, Key::Enter],
+    );
+    ready(&mut harness);
+    assert_eq!(viewer(&harness).document().path, second.path());
+
+    // Back on the start screen, the second one now on top, no row is moved to: Return opens
+    // nothing (not the first one, now where the second was); ↑ stops at the top.
+    harness.key_press_modifiers(command(), Key::W);
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().recent().paths(),
+        [second.path(), first.path()]
+    );
+    keys(&mut harness, &[Key::Enter]);
+    harness.run_steps(2);
+    harness.get_by_label(start::TITLE);
+    keys(
+        &mut harness,
+        &[Key::ArrowDown, Key::ArrowUp, Key::ArrowUp, Key::Enter],
+    );
+    ready(&mut harness);
+    assert_eq!(viewer(&harness).document().path, second.path());
+}
+
+#[test]
+fn the_start_screen_removes_one_recent_recording_or_clears_them() {
+    let first = without_triggers("bdf+c-small");
+    let second = TempFile::preset("bdf+c-small");
+    let third = TempFile::preset("bdf+c-small");
+    let mut harness = start_window(&[first.path(), second.path(), third.path()]);
+    harness.run_steps(2);
+    // The × shows on the row under the pointer, and the rows stay where they are.
+    assert!(harness.query_by_label("×").is_none());
+    let rows = |h: &Harness<'_, KymoApp>| {
+        [&first, &second, &third].map(|f| h.get_by_label(&file_name(f)).rect())
+    };
+    let before = rows(&harness);
+    harness.get_by_label(&file_name(&second)).hover();
+    harness.run_steps(2);
+    assert_eq!(rows(&harness), before);
+    harness.get_by_label("×").click();
+    harness.run_steps(2);
+    assert!(harness.state().viewer().is_none());
+    assert_eq!(
+        harness.state().recent().paths(),
+        [first.path(), third.path()]
+    );
+    assert!(harness.query_by_label(&file_name(&second)).is_none());
+
+    harness.get_by_label("Clear").click();
+    harness.run_steps(2);
+    assert!(harness.state().recent().paths().is_empty());
+    assert!(harness.query_by_label(&file_name(&first)).is_none());
+}
+
+#[test]
+fn a_long_recent_list_scrolls_by_itself() {
+    // Ten recordings (they needn't exist to be listed) in a short window.
+    let dir = TempDir::new();
+    let paths: Vec<PathBuf> = (0..10)
+        .map(|i| dir.path().join(format!("recording-{i}.bdf")))
+        .collect();
+    let refs: Vec<&Path> = paths.iter().map(PathBuf::as_path).collect();
+    let size = egui::vec2(800.0, 480.0);
+    let mut harness = start_window_sized(&refs, size);
+    harness.run_steps(4);
+    let open = harness.get_by_label("Open…").rect();
+    let last = |h: &Harness<'_, KymoApp>| h.get_by_label("recording-9.bdf").rect();
+    assert!(last(&harness).bottom() > size.y);
+
+    // Moved to with the arrow keys, the last one scrolls into sight; the rest stays put.
+    for _ in 0..10 {
+        harness.key_press(Key::ArrowDown);
+        harness.run_steps(1);
+    }
+    harness.run_steps(4);
+    assert!(last(&harness).bottom() <= size.y, "{:?}", last(&harness));
+    assert_eq!(harness.get_by_label("Open…").rect(), open);
+    assert!(harness.get_by_label(start::TITLE).rect().top() >= 0.0);
+}
+
+#[test]
+fn a_missing_recent_recording_shows_the_error_and_leaves_the_list() {
+    let kept = without_triggers("bdf+c-small");
+    let gone = TempFile::preset("bdf+c-small");
+    let gone_name = file_name(&gone);
+    let mut harness = start_window(&[gone.path(), kept.path()]);
+    drop(gone);
+    harness.run_steps(2);
+    harness.get_by_label(&gone_name).click();
+    step_until(&mut harness, "the error", |app| app.error().is_some());
+    harness.run_steps(2);
+    harness.get_by_label(start::FAILED);
+    assert_eq!(harness.state().recent().paths(), [kept.path()]);
+    assert!(harness.query_by_label(&gone_name).is_none());
+
+    // The rest is still a click away.
+    harness.get_by_label(&file_name(&kept)).click();
+    ready(&mut harness);
+    assert_eq!(viewer(&harness).document().path, kept.path());
 }
 
 #[test]

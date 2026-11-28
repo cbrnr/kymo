@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::Result;
-use eframe::egui::{self, Align, Color32, Event, Layout, RichText, Ui};
+use eframe::egui::{self, Event, Ui};
 use kymo_core::annotation_file::{self, Format};
 use kymo_core::channel_file;
 use kymo_core::pyramid::Sidecar;
@@ -32,6 +32,7 @@ use crate::ui::header;
 use crate::ui::info::info_window;
 use crate::ui::menus::{MenuState, about_window, egui_menu_bar, shortcuts_window};
 use crate::ui::settings::settings_window;
+use crate::ui::start::{Picked, StartScreen};
 use crate::ui::theme;
 use crate::ui::types::channel_types_window;
 use crate::update::{self, Check, Release, Source, UpdateState};
@@ -149,10 +150,8 @@ pub struct KymoApp {
     /// Go to Time…, and what its field holds.
     go_to_open: bool,
     go_to: GoToField,
-    /// Show the file dialog once the window is on screen.
-    pick_file: bool,
-    /// Whether a frame has been shown yet.
-    shown: bool,
+    /// The window without a recording.
+    start: StartScreen,
     /// The window title last set.
     title: String,
     /// Answers to the next file dialogs, in order, instead of the system's (`None` cancels),
@@ -256,8 +255,7 @@ impl KymoApp {
             channel_types_filter: String::new(),
             go_to_open: false,
             go_to: GoToField::default(),
-            pick_file: path.is_none(),
-            shown: false,
+            start: StartScreen::default(),
             // As the window opens.
             title: APP_NAME.to_owned(),
             dialog_answers: None,
@@ -779,22 +777,9 @@ impl KymoApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.leaving = Some(Leave::Quit);
         }
-        // The startup dialog is modal: show it once the window has been drawn and has focus.
-        // On macOS a panel opened before the app is active is canceled at once; gaining
-        // focus repaints, which brings us back here.
-        // Before the file dialog a window started without a recording shows: Finder starts
-        // an app bundle without arguments and hands over the file it was started for.
+        // Finder starts an app bundle without arguments and hands over the file it was
+        // started for.
         self.take_opened(&ctx);
-        if self.pick_file {
-            let focused = ctx.input(|i| i.viewport().focused).unwrap_or(true);
-            if self.shown && focused {
-                self.pick_file = false;
-                self.pick_at_startup(&ctx);
-            } else if !self.shown {
-                ctx.request_repaint();
-            }
-        }
-        self.shown = true;
 
         let mut actions = self
             .native_menu
@@ -880,8 +865,13 @@ impl KymoApp {
             }
         }
 
-        let mut open_clicked = false;
+        let mut picked = None;
         let mut asked = None;
+        let start_keys = self.viewer().is_none()
+            && !self.asking()
+            && !ctx.egui_wants_keyboard_input()
+            && !egui::Popup::is_any_open(&ctx)
+            && Overlay::front(&ctx, self.open_overlays()).is_none();
         match &mut self.state {
             State::Ready(viewer) => {
                 let shown = viewer.show(
@@ -907,10 +897,11 @@ impl KymoApp {
             }
             State::Empty => {
                 egui::CentralPanel::default().show(ui, |ui| {
-                    open_clicked = centered_message(ui, "No Recording Open", None);
+                    picked = self.start.show(ui, &self.options.recent, None, start_keys);
                 });
             }
             State::Loading(loading) => {
+                self.start.deselect();
                 let text = format!("Opening {}…", loading.path().display());
                 egui::CentralPanel::default().show(ui, |ui| {
                     ui.centered_and_justified(|ui| {
@@ -922,15 +913,23 @@ impl KymoApp {
                 });
             }
             State::Failed { error, .. } => {
-                let color = ui.visuals().error_fg_color;
                 egui::CentralPanel::default().show(ui, |ui| {
-                    open_clicked =
-                        centered_message(ui, "Could Not Open the Recording", Some((error, color)));
+                    picked = self
+                        .start
+                        .show(ui, &self.options.recent, Some(error), start_keys);
                 });
             }
         }
-        if open_clicked {
-            self.leave(&ctx, Leave::Open);
+        match picked {
+            Some(Picked::Open) => self.leave(&ctx, Leave::Open),
+            Some(Picked::Recent(index)) => self.perform(&ctx, Action::OpenRecent(index as u8)),
+            Some(Picked::Remove(index)) => {
+                if let Some(path) = self.options.recent.get(index).map(Path::to_owned) {
+                    self.options.recent.remove(&path);
+                }
+            }
+            Some(Picked::Clear) => self.perform(&ctx, Action::ClearRecent),
+            None => {}
         }
         if let Some(action) = asked {
             self.perform(&ctx, action);
@@ -1095,27 +1094,6 @@ impl KymoApp {
         }
     }
 
-    /// The startup file dialog. On macOS it opens on the main queue's next turn and hands
-    /// its file over as Finder does: started from Finder or the Dock, the window's first
-    /// frames run while AppKit restores and draws it, inside a Core Animation commit, where
-    /// AppKit refuses a modal dialog and cancels it at once.
-    fn pick_at_startup(&mut self, ctx: &egui::Context) {
-        #[cfg(target_os = "macos")]
-        if self.dialog_answers.is_none()
-            && let Some(inbox) = &self.opened
-        {
-            let inbox = Arc::clone(inbox);
-            let files = self.open_dialog();
-            dispatch2::DispatchQueue::main().exec_async(move || {
-                if let Some(path) = files.pick_file() {
-                    inbox.push([path]);
-                }
-            });
-            return;
-        }
-        self.pick_and_open(ctx);
-    }
-
     /// The dialog that opens a recording, not yet shown.
     fn open_dialog(&self) -> rfd::FileDialog {
         let mut files = rfd::FileDialog::new();
@@ -1229,7 +1207,6 @@ impl KymoApp {
         let Some(path) = inbox.take().into_iter().next() else {
             return;
         };
-        self.pick_file = false;
         self.open_file(ctx, path);
     }
 
@@ -1826,23 +1803,6 @@ fn write_file(
     let mut out = BufWriter::new(File::create(path)?);
     write(&mut out)?;
     out.flush()
-}
-
-/// A message with an optional detail and an Open button, centered. Returns whether the
-/// button was clicked.
-fn centered_message(ui: &mut Ui, message: &str, detail: Option<(&String, Color32)>) -> bool {
-    let mut clicked = false;
-    ui.with_layout(Layout::top_down(Align::Center), |ui| {
-        ui.add_space(ui.available_height() / 3.0);
-        ui.heading(message);
-        if let Some((detail, color)) = detail {
-            ui.add_space(8.0);
-            ui.label(RichText::new(detail).color(color));
-        }
-        ui.add_space(12.0);
-        clicked = ui.button("Open…").clicked();
-    });
-    clicked
 }
 
 /// Starts the window and runs until it closes.

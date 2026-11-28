@@ -27,7 +27,6 @@ egui_kittest = { version = "0.37", features = ["eframe", "wgpu"] }
 # The system font fallback eframe installs, for the same glyphs in headless UI tests.
 egui_system_font_provider = "0.37"
 # macOS only, already pulled in by rfd; opens the startup file dialog on the main queue.
-dispatch2 = "0.3.1"
 jiff = { version = "0.2", default-features = false, features = ["std"] }
 memmap2 = "0.9"
 # Native menu bars on macOS and Windows; default features (GTK) are Linux-only and unused.

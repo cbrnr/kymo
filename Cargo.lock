@@ -2090,7 +2090,6 @@ version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
- "dispatch2",
  "eframe",
  "egui_kittest",
  "egui_system_font_provider",
