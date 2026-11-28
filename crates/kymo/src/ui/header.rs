@@ -1369,18 +1369,31 @@ fn channel_list(
                     if alone && alone_mark(ui, response.rect, platform, id) {
                         view.rejoin(&[id]);
                     }
-                    if let Some(full) = &full {
-                        response = response.on_hover_text(full);
+                    // A shown channel's name shows it in the traces, as a type's or stream's
+                    // does.
+                    let hint = match (&full, shown) {
+                        (Some(full), true) => Some(format!("{full}\n\nShow in Traces")),
+                        (None, true) => Some("Show in Traces".to_owned()),
+                        (full, false) => full.clone(),
+                    };
+                    if let Some(hint) = hint {
+                        response = response.on_hover_text(hint);
                     }
-                    // The whole row is one target: a click selects it alone (or takes the only
-                    // selected row out again), ⌘-click adds or takes it out, ⇧-click selects the
-                    // rows from the last clicked; each scrolls the traces to it if it is off
-                    // screen.
-                    if response.hovered() || row_response.hovered() {
+                    // The hand where a click shows the channel; the arrow where it selects, as
+                    // in other lists.
+                    if response.hovered() && shown {
                         ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                     }
-                    if response.clicked() || row_response.clicked() {
-                        let modifiers = ui.input(|i| i.modifiers);
+                    let modifiers = ui.input(|i| i.modifiers);
+                    let select = modifiers.command || modifiers.shift || !shown;
+                    if response.clicked() && !select {
+                        view.reveal(id);
+                    }
+                    // The rest of the row (and the name with ⌘ or ⇧, or of a hidden channel) is
+                    // one target: a click selects it alone (or takes the only selected row out
+                    // again), ⌘-click adds or takes it out, ⇧-click selects the rows from the
+                    // last clicked; each scrolls the traces to it if it is off screen.
+                    if (response.clicked() && select) || row_response.clicked() {
                         if modifiers.command {
                             view.toggle_selected(id);
                         } else if modifiers.shift {
