@@ -380,7 +380,7 @@ fn bad_marks_undo_and_redo() {
     assert_eq!(bad(&harness), [1]);
 
     // The bar's marks, one step.
-    click_in_list(&mut harness, Role::Label, "A1");
+    select_in_list(&mut harness, "A1");
     harness
         .get_by_role_and_label(Role::Label, "A2")
         .click_modifiers(command());
@@ -431,7 +431,7 @@ fn a_click_on_the_selected_row_deselects_it() {
     };
     let (name, row) = pixels(&mut harness, Some(away));
     let (_, hovered) = pixels(&mut harness, None);
-    click_in_list(&mut harness, Role::Label, "A2");
+    select_in_list(&mut harness, "A2");
     assert_eq!(
         viewer(&harness).view().selected(),
         [kymo_core::ChannelId(1)]
@@ -441,16 +441,16 @@ fn a_click_on_the_selected_row_deselects_it() {
     assert_ne!(selected_row, row);
     let (_, selected_hovered) = pixels(&mut harness, None);
     assert_ne!(selected_hovered, hovered);
-    click_in_list(&mut harness, Role::Label, "A2");
+    select_in_list(&mut harness, "A2");
     assert!(viewer(&harness).view().selected().is_empty());
     assert_eq!(pixels(&mut harness, Some(away)), (name, row));
     // In a larger selection a click selects the row alone, as ever.
-    click_in_list(&mut harness, Role::Label, "A1");
+    select_in_list(&mut harness, "A1");
     harness
         .get_by_role_and_label(Role::Label, "A2")
         .click_modifiers(command());
     harness.run_steps(2);
-    click_in_list(&mut harness, Role::Label, "A2");
+    select_in_list(&mut harness, "A2");
     assert_eq!(
         viewer(&harness).view().selected(),
         [kymo_core::ChannelId(1)]
@@ -1261,6 +1261,21 @@ fn click_in_list(harness: &mut Harness<'_, KymoApp>, role: egui::accesskit::Role
     harness.run_steps(2);
 }
 
+/// Selects a channel by clicking its row beside its name (a click on the name only scrolls
+/// the traces to it), as [`click_in_list`] scrolls the list to it first.
+fn select_in_list(harness: &mut Harness<'_, KymoApp>, name: &str) {
+    use egui::accesskit::Role;
+    harness
+        .ctx
+        .global_style_mut(|s| s.scroll_animation = egui::style::ScrollAnimation::none());
+    harness
+        .get_by_role_and_label(Role::Label, name)
+        .scroll_to_me();
+    harness.run_steps(3);
+    let rect = harness.get_by_role_and_label(Role::Label, name).rect();
+    click(harness, egui::pos2(rect.right() + 8.0, rect.center().y));
+    harness.run_steps(2);
+}
 fn toggled(
     harness: &Harness<'_, KymoApp>,
     role: egui::accesskit::Role,
@@ -2238,7 +2253,7 @@ fn selected_channels_change_type_together() {
     let selected = |h: &Harness<'_, KymoApp>| -> Vec<u32> {
         viewer(h).view().selected().iter().map(|c| c.0).collect()
     };
-    click_in_list(&mut harness, Role::Label, "A1");
+    select_in_list(&mut harness, "A1");
     assert_eq!(selected(&harness), [0]);
     harness
         .get_by_role_and_label(Role::Label, "EOG L")
@@ -2294,9 +2309,9 @@ fn selected_channels_change_type_together() {
     harness.key_press(Key::Escape);
     harness.run_steps(2);
     assert!(selected(&harness).is_empty());
-    click_in_list(&mut harness, Role::Label, "A2");
+    select_in_list(&mut harness, "A2");
     assert_eq!(selected(&harness), [1]);
-    click_in_list(&mut harness, Role::Label, "A2");
+    select_in_list(&mut harness, "A2");
     assert!(selected(&harness).is_empty());
 
     // The type's menu returns them both, its file's type differing.
@@ -2309,7 +2324,6 @@ fn selected_channels_change_type_together() {
 /// it takes its room either way, in line with the type rows' menus.
 #[test]
 fn a_channels_menu_shows_on_its_row_hovered() {
-    use egui::accesskit::Role;
     let file = typed_preset();
     let mut harness = fonts_window(file.path(), options());
     ready(&mut harness);
@@ -2337,7 +2351,7 @@ fn a_channels_menu_shows_on_its_row_hovered() {
     let type_menu = harness.get_by_label("Options for EEG channels").rect();
     assert!((menu.right() - type_menu.right()).abs() < 0.5);
     // Selected, it acts on its row alone all the same: not shown without the pointer.
-    click_in_list(&mut harness, Role::Label, "A2");
+    select_in_list(&mut harness, "A2");
     assert!(viewer(&harness).view().is_selected(kymo_core::ChannelId(1)));
     assert!(contrast(&mut harness, away) < 5);
 }
@@ -2398,7 +2412,7 @@ fn bad_shows_on_bad_rows_and_menus_mark_bad() {
         channel_named(&harness, "EOG L"),
     );
     mark_in_list(&mut harness, "EOG L", true);
-    click_in_list(&mut harness, Role::Label, "A1");
+    select_in_list(&mut harness, "A1");
     for name in ["A2", "EOG L"] {
         harness
             .get_by_role_and_label(Role::Label, name)
@@ -2473,7 +2487,6 @@ fn channels_are_selected_all_bad_or_by_type() {
 /// narrow sidebar, wrapping if they must.
 #[test]
 fn the_selection_bar_shows_with_a_selection() {
-    use egui::accesskit::Role;
     let file = typed_preset();
     let mut harness = window(file.path());
     ready(&mut harness);
@@ -2481,14 +2494,14 @@ fn the_selection_bar_shows_with_a_selection() {
     assert!(harness.query_by_label("Scale").is_none());
     // The narrowest sidebar.
     sidebar_to(&mut harness, 0.0);
-    click_in_list(&mut harness, Role::Label, "A1");
+    select_in_list(&mut harness, "A1");
     harness.get_by_label("1 channel selected");
     let edge = viewer(&harness).layout().unwrap().names.left() - 8.0;
     for button in ["Mark", "Type", "Scale"] {
         let rect = harness.get_by_label(button).rect();
         assert!(rect.right() <= edge, "{button}: {rect:?} past {edge}");
     }
-    click_in_list(&mut harness, Role::Label, "A1");
+    select_in_list(&mut harness, "A1");
     assert!(harness.query_by_label("Scale").is_none());
 }
 
@@ -9042,7 +9055,6 @@ fn measuring_in_annotation_mode_creates_no_annotation() {
 
 #[test]
 fn esc_and_clicks_remove_the_measurement_and_drags_keep_it() {
-    use egui::accesskit::Role;
     let file = slow_preset();
     let mut harness = window(file.path());
     ready(&mut harness);
@@ -9086,7 +9098,7 @@ fn esc_and_clicks_remove_the_measurement_and_drags_keep_it() {
     press(&mut harness, Modifiers::NONE, Key::Escape);
     assert!(!viewer(&harness).measured());
     measure(&mut harness);
-    click_in_list(&mut harness, Role::Label, "Cz");
+    select_in_list(&mut harness, "Cz");
     assert_eq!(viewer(&harness).view().selected().len(), 1);
     press(&mut harness, Modifiers::NONE, Key::Escape);
     assert!(!viewer(&harness).measured());
@@ -9299,7 +9311,7 @@ fn a_channel_scales_alone() {
     // The first and third selected: over the third, both scale.
     let (first, third) = (visible[0], visible[2]);
     let first_name = name(&harness, first);
-    click_in_list(&mut harness, Role::Label, &first_name);
+    select_in_list(&mut harness, &first_name);
     let third_name = name(&harness, third);
     harness
         .get_by_role_and_label(Role::Label, &third_name)
@@ -10263,4 +10275,47 @@ fn the_minimap_follows_picked_colors() {
     close_picker(&mut harness);
     let after = line(&mut harness);
     assert!(near(after, [10, 200, 30]), "{after:?}");
+}
+
+/// A click on a shown channel's name scrolls the traces to it and leaves the selection as
+/// it was, as its hint says; with ⌘ it selects as a click beside the name does, and a hidden
+/// channel's name, with nowhere to scroll to, selects too.
+#[test]
+fn a_channel_name_scrolls_without_selecting() {
+    use egui::accesskit::Role;
+    let file = typed_preset();
+    let mut harness = window(file.path());
+    ready(&mut harness);
+    for _ in 0..2 {
+        harness.key_press_modifiers(command() | Modifiers::SHIFT, Key::Minus);
+        harness.step();
+    }
+    assert_eq!(viewer(&harness).view().rows(), 3);
+    click_in_list(&mut harness, Role::Label, "Status");
+    assert_eq!(viewer(&harness).view().top(), 2.0);
+    assert!(viewer(&harness).view().selected().is_empty());
+
+    let a2 = harness
+        .get_by_role_and_label(Role::Label, "A2")
+        .rect()
+        .center();
+    hover(&mut harness, a2);
+    assert!(tooltip(&mut harness, "Show in Traces"));
+
+    harness
+        .get_by_role_and_label(Role::Label, "A1")
+        .click_modifiers(command());
+    harness.run_steps(2);
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(0)]
+    );
+    assert_eq!(viewer(&harness).view().top(), 0.0);
+
+    click_in_list(&mut harness, Role::CheckBox, "Show A2");
+    click_in_list(&mut harness, Role::Label, "A2");
+    assert_eq!(
+        viewer(&harness).view().selected(),
+        [kymo_core::ChannelId(1)]
+    );
 }
