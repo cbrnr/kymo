@@ -23,7 +23,8 @@ use crate::document::{Document, Summary, format_duration};
 use crate::history::{self, Change, History, Mark};
 use crate::keymap::{Keymap, Platform};
 use crate::measure::{self, Measurement, Span};
-use crate::render::{Frame, Scene};
+use crate::motion::{self, RowMotion};
+use crate::render::{Frame, Scene, faded};
 use crate::scale;
 use crate::scale_bar::{ScaleBar, reading_unit, scale_bars};
 use crate::stim_annotations::{StimAnnotations, Update};
@@ -230,6 +231,8 @@ pub struct Viewer {
     /// The width channel names get in the names column, set each frame.
     name_room: f32,
     layout: Option<Layout>,
+    /// The rows on their way to new places after channels were shown, hidden or reordered.
+    motion: RowMotion,
     /// Tiles the last frame wanted that weren't cached.
     missing: usize,
     /// Whether the last frame drew a row on a mean not computed yet for its window.
@@ -327,6 +330,7 @@ impl Viewer {
             names_dragged: None,
             name_room: 0.0,
             layout: None,
+            motion: RowMotion::new(),
             missing: 0,
             means_pending: false,
             marks: Marks::default(),
@@ -1443,17 +1447,32 @@ impl Viewer {
                 Some(rect)
             });
 
-        let query = query(rec, &self.view.tile_view(size_px[0]), service.cache());
+        // Rows on their way to new places are drawn there, those going too, from the
+        // tiles they had.
+        let now = ui.input(|i| i.time);
+        let seconds = if ui.style().animation_time > 0.0 {
+            motion::SECONDS
+        } else {
+            0.0
+        };
+        if self.motion.follow(&self.view, now, seconds) {
+            ui.ctx().request_repaint();
+        }
+        let slots = self.motion.rows(&self.view, now);
+        let mut drawn = self.view.tile_view(size_px[0]);
+        drawn.channels = slots.iter().map(|&(c, _)| c).collect();
+        let query = query(rec, &drawn, service.cache());
         self.missing = query.missing.len();
         if self.auto_scale && query.missing.is_empty() {
             self.view
                 .set_amplitudes(scale::fit(rec, &self.view, &query, size_px[0]));
             self.auto_scale = false;
         }
-        let mut scene = Scene::from_view(&self.view, size_px, rgba(visuals.text_color()));
+        let text = rgba(visuals.text_color());
+        let mut scene = Scene::from_slots(&self.view, &slots, size_px, text);
         scene.antialias = self.antialias;
-        for row in &mut scene.rows {
-            row.color = rgba(self.channel_color(row.channel, visuals));
+        for (row, (_, slot)) in scene.rows.iter_mut().zip(&slots) {
+            row.color = faded(rgba(self.channel_color(row.channel, visuals)), slot.opacity);
             row.baseline = self.baseline(row.channel);
         }
         let frame = Frame::new(rec, &scene, &query);
@@ -1503,13 +1522,14 @@ impl Viewer {
         let names_painter = painter.with_clip_rect(names);
         let name_room = self.name_room;
         let height = area.height;
-        for (i, &channel) in self.view.visible_rows().zip(self.view.visible_channels()) {
-            let y = traces.top() + self.view.y_of_row(i as f64 + 0.5, height) as f32;
+        for &(channel, slot) in &slots {
+            let y = traces.top() + (slot.center() * height) as f32;
             let color = if self.hover.channel == Some(channel) && !self.view.is_bad(channel) {
                 visuals.strong_text_color()
             } else {
                 self.channel_color(channel, visuals)
             };
+            let color = color.gamma_multiply(slot.opacity as f32);
             let name = &rec.channel(channel).name;
             let short = elide_middle(ui.ctx(), name, &body, name_room);
             names_painter.text(
