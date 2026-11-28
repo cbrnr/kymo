@@ -223,3 +223,34 @@ fn details_name_the_ends_samples_and_values() {
         "x 0.4 s to 0.9 s \u{b7} 500 ms \u{b7} \u{2013} \u{2192} \u{2013}"
     );
 }
+
+#[test]
+fn value_labels_stay_beside_their_points_and_on_screen() {
+    use eframe::egui::{Rect, pos2, vec2};
+    use kymo::measure::value_label_pos;
+
+    let area = Rect::from_min_max(pos2(0.0, 0.0), pos2(400.0, 300.0));
+    let size = vec2(60.0, 16.0);
+    // Above and right of the point.
+    assert_eq!(
+        value_label_pos(pos2(100.0, 100.0), size, area, 4.0),
+        pos2(104.0, 80.0)
+    );
+    // Left of it near the right edge, below it near the top.
+    assert_eq!(
+        value_label_pos(pos2(380.0, 100.0), size, area, 4.0),
+        pos2(316.0, 80.0)
+    );
+    assert_eq!(
+        value_label_pos(pos2(100.0, 10.0), size, area, 4.0),
+        pos2(104.0, 14.0)
+    );
+    // Within the area as far as it fits, wherever the point is.
+    for anchor in [pos2(0.0, 0.0), pos2(400.0, 300.0), pos2(30.0, 295.0)] {
+        let at = value_label_pos(anchor, size, area, 4.0);
+        assert!(
+            area.contains_rect(Rect::from_min_size(at, size)),
+            "{anchor:?}"
+        );
+    }
+}

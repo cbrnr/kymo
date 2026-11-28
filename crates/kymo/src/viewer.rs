@@ -1494,6 +1494,8 @@ impl Viewer {
         if let Some((channel, time)) = self.measure_start {
             let visuals = ui.visuals();
             self.draw_trace_dots(&overlay, traces, channel, &[time], size_px[0], visuals);
+            let start = (channel, time);
+            self.draw_start_value(&overlay, traces, start, size_px[0], &small, visuals);
         }
 
         // Channel names, centered on their rows, shortened in the middle where too long.
@@ -1640,11 +1642,24 @@ impl Viewer {
         width_px: u32,
         visuals: &egui::Visuals,
     ) {
-        let Some(row) = self.view.row_of(channel) else {
-            return;
-        };
+        for &t in times {
+            if let Some(at) = self.trace_point(traces, channel, t, width_px) {
+                painter.circle(
+                    at,
+                    MEASURE_DOT,
+                    visuals.strong_text_color(),
+                    Stroke::new(1.0, visuals.extreme_bg_color),
+                );
+            }
+        }
+    }
+
+    /// Where `channel`'s trace is at time `t` on screen: where its row is shown, `t` reads
+    /// a value (not an envelope) and the point is within its row's clip.
+    fn trace_point(&self, traces: Rect, channel: ChannelId, t: f64, width_px: u32) -> Option<Pos2> {
+        let row = self.view.row_of(channel)?;
         if !self.view.visible_rows().contains(&row) {
-            return;
+            return None;
         }
         let rec = &self.document.recording;
         let height = f64::from(traces.height());
@@ -1652,7 +1667,7 @@ impl Viewer {
         let center = self.view.y_of_row(row as f64 + 0.5, height);
         let amplitude = self.view.channel_amplitude(channel);
         if !(amplitude > 0.0 && amplitude.is_finite()) {
-            return;
+            return None;
         }
         let per_unit = row_height / (2.0 * amplitude);
         let baseline = self.baseline(channel);
@@ -1664,25 +1679,60 @@ impl Viewer {
             traces.y_range()
         };
         let view = self.view.tile_view(width_px);
-        let width = f64::from(traces.width());
-        for &t in times {
-            let Some(readout::Reading::Value(v)) =
-                readout::read(rec, self.service().cache(), &view, channel, t)
-            else {
-                continue;
-            };
-            let y = traces.top() + (center - (v - baseline) * per_unit) as f32;
-            let x = traces.left() + self.view.x_at(t, width) as f32;
-            if rows.contains(y) && traces.x_range().contains(x) {
-                let at = pos2(x, y);
-                painter.circle(
-                    at,
-                    MEASURE_DOT,
-                    visuals.strong_text_color(),
-                    Stroke::new(1.0, visuals.extreme_bg_color),
-                );
+        let Some(readout::Reading::Value(v)) =
+            readout::read(rec, self.service().cache(), &view, channel, t)
+        else {
+            return None;
+        };
+        let y = traces.top() + (center - (v - baseline) * per_unit) as f32;
+        let x = traces.left() + self.view.x_at(t, f64::from(traces.width())) as f32;
+        (rows.contains(y) && traces.x_range().contains(x)).then(|| pos2(x, y))
+    }
+
+    /// The reading where a ⇧-drag would start, on a plate next to its dot (or, where the
+    /// time reads an envelope or the trace is off its row, at the row's middle): as the
+    /// status line and the measurement read it.
+    fn draw_start_value(
+        &self,
+        painter: &egui::Painter,
+        traces: Rect,
+        (channel, time): (ChannelId, f64),
+        width_px: u32,
+        font: &FontId,
+        visuals: &egui::Visuals,
+    ) {
+        let rec = &self.document.recording;
+        let view = self.view.tile_view(width_px);
+        let (unit, factor) = reading_unit(rec, &self.view, channel);
+        let Some(reading) = readout::read(rec, self.service().cache(), &view, channel, time)
+            .map(|r| r.relative_to(self.baseline(channel)).scaled(factor))
+        else {
+            return;
+        };
+        let anchor = match self.trace_point(traces, channel, time, width_px) {
+            Some(at) => at,
+            None => {
+                let Some(row) = self.view.row_of(channel) else {
+                    return;
+                };
+                let height = f64::from(traces.height());
+                let y = traces.top() + self.view.y_of_row(row as f64 + 0.5, height) as f32;
+                let x = traces.left() + self.view.x_at(time, f64::from(traces.width())) as f32;
+                pos2(x, y.clamp(traces.top(), traces.bottom()))
             }
-        }
+        };
+        let color = visuals.strong_text_color();
+        let galley =
+            painter.layout_no_wrap(status::reading_text(reading, &unit), font.clone(), color);
+        let margin = vec2(MEASURE_LABEL_MARGIN, 2.0);
+        let size = galley.size() + 2.0 * margin;
+        let plate = Rect::from_min_size(
+            measure::value_label_pos(anchor, size, traces, MEASURE_LABEL_GAP),
+            size,
+        );
+        let fill = visuals.extreme_bg_color.gamma_multiply(LABEL_PLATE_ALPHA);
+        painter.rect_filled(plate, 2.0, fill);
+        painter.galley(plate.min + margin, galley, color);
     }
 
     /// The smallest and largest physical value of `channel` in the band, exact; `None`

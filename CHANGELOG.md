@@ -2,6 +2,7 @@
 
 ## [UNRELEASED] · 2026-11-28
 ### ✨ Added
+- Show the value of the sample under the pointer next to it while ⇧ (Shift) is held over the traces ([#27](https://github.com/cbrnr/kymo/pull/27) by [Clemens Brunner](https://github.com/cbrnr)).
 - Limit the disk cache in Settings (5 GB by default, or unlimited), removing the overviews of the recordings used longest ago beyond it, keep them only until Kymo quits with Session, or keep overviews in memory and write nothing with Off ([#22](https://github.com/cbrnr/kymo/pull/22) by [Clemens Brunner](https://github.com/cbrnr)).
 
 ### 🌀 Changed

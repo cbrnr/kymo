@@ -78,7 +78,7 @@ The following sections show keyboard shortcuts for macOS. On Windows and Linux, 
 
 ### Measuring
 
-- Hold <kbd>⇧</kbd> and drag across the traces to measure between two points. The label shows the time difference, the corresponding frequency, and the peak-to-peak amplitude of the channel in between, accurate at any zoom level.
+- Hold <kbd>⇧</kbd> over the traces to see the value of the sample under the pointer next to it, and drag to measure between two points. The label shows the time difference, the corresponding frequency, and the peak-to-peak amplitude of the channel in between, accurate at any zoom level.
 - The status line shows both endpoints' times and values and the number of samples between them.
 
 ### Annotations and events

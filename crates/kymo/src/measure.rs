@@ -4,6 +4,7 @@
 
 use std::ops::Range;
 
+use eframe::egui::{Pos2, Rect, Vec2, pos2};
 use kymo_core::{ChannelId, Grid, Recording};
 
 use crate::ui::axis::{Clock, format_time};
@@ -103,6 +104,28 @@ pub fn snap(grid: &Grid, time: f64) -> f64 {
     } else {
         grid.time_of(nearest_sample(grid, time))
     }
+}
+
+/// Where a value label `size` large goes next to the point `anchor` it reads, `gap` away:
+/// its top-left corner. Above and right of the point, else left of it where it would
+/// leave `area` on the right, else below it where it would leave it at the top; within
+/// `area` as far as it fits.
+pub fn value_label_pos(anchor: Pos2, size: Vec2, area: Rect, gap: f32) -> Pos2 {
+    let right = anchor.x + gap;
+    let x = if right + size.x <= area.right() {
+        right
+    } else {
+        anchor.x - gap - size.x
+    };
+    let above = anchor.y - gap - size.y;
+    let y = if above >= area.top() {
+        above
+    } else {
+        anchor.y + gap
+    };
+    let x = x.min(area.right() - size.x).max(area.left());
+    let y = y.min(area.bottom() - size.y).max(area.top());
+    pos2(x, y)
 }
 
 /// The sample of a non-empty `grid` nearest to `time`, its first or last beyond them.
