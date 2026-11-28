@@ -84,8 +84,8 @@ pub struct HeaderSource<'a> {
 /// legend shows and hides annotations by description in `annotations.legend`, and picks
 /// their colors in `annotations.colors`. In annotation mode, `annotations.field` edits the
 /// description new annotations get, or the selected annotation's, above the legend, which
-/// then shows even without annotations. The Format row's value and an ⓘ button after it
-/// ask for the Recording Info window. Returns what was asked of the viewer.
+/// then shows even without annotations. The Format row's value is a button that asks for
+/// the Recording Info window. Returns what was asked of the viewer.
 pub fn header_panel(
     ui: &mut Ui,
     source: HeaderSource<'_>,
@@ -227,29 +227,25 @@ pub struct HeaderResponse {
 /// Channels to mark bad (`true`) or good, if any.
 pub type Marks = Option<(Vec<ChannelId>, bool)>;
 
-/// The Format row's value: `text` and an ⓘ after it, one button that opens Recording Info
-/// (named "Recording Info" for screen readers, with `text` as its value, and the shortcut
-/// on `platform` on hover). It reads as text until hovered, when both brighten on a
-/// background as [`text_button`]'s; the background reaches past the text into the gaps
-/// around it, so the format lines up with the other values. The text shortens to leave the
-/// ⓘ its room.
+/// The Format row's value: `text` as a button that opens Recording Info (named "Recording
+/// Info" for screen readers, with `text` as its value, and the shortcut on `platform` on
+/// hover). It reads as text until hovered, when it brightens on a background as
+/// [`text_button`]'s; the background reaches past the text into the gaps around it, so the
+/// format lines up with the other values.
 fn info_value(ui: &mut Ui, text: &str, platform: Platform) -> Response {
     let padding = ui.spacing().button_padding;
-    let icon = ui.text_style_height(&TextStyle::Body);
-    let gap = ui.spacing().item_spacing.x;
-    let room = (ui.available_width() - icon - gap - padding.x).max(0.0);
+    let room = (ui.available_width() - padding.x).max(0.0);
     let galley = egui::WidgetText::from(text).into_galley(
         ui,
         Some(egui::TextWrapMode::Truncate),
         room,
         TextStyle::Body,
     );
-    let size = vec2(galley.size().x + gap + icon, galley.size().y.max(icon));
-    let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, response) = ui.allocate_exact_size(galley.size(), Sense::click());
     if ui.is_rect_visible(rect) {
         let visuals = ui.visuals();
         let hovered = response.hovered() || response.has_focus();
-        let (text_color, icon_color) = if hovered {
+        let text_color = if hovered {
             let widget = &visuals.widgets.hovered;
             ui.painter().rect(
                 rect.expand2(padding),
@@ -258,18 +254,13 @@ fn info_value(ui: &mut Ui, text: &str, platform: Platform) -> Response {
                 widget.bg_stroke,
                 egui::StrokeKind::Inside,
             );
-            (visuals.strong_text_color(), visuals.strong_text_color())
+            visuals.strong_text_color()
         } else {
-            (visuals.text_color(), visuals.weak_text_color())
+            visuals.text_color()
         };
         let top = rect.center().y - galley.size().y / 2.0;
         ui.painter()
             .galley(egui::pos2(rect.left(), top), galley, text_color);
-        let sign = egui::Rect::from_center_size(
-            egui::pos2(rect.right() - icon / 2.0, rect.center().y),
-            vec2(icon, icon),
-        );
-        info_sign(ui.painter(), sign, icon_color);
     }
     response
         .widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), INFO_LABEL));
@@ -286,16 +277,6 @@ fn info_value(ui: &mut Ui, text: &str, platform: Platform) -> Response {
 
 /// What the Format row's button is named, for screen readers and its tooltip.
 pub const INFO_LABEL: &str = "Recording Info";
-
-/// An information sign filling `rect`: a circle with an "i", in `color`.
-fn info_sign(painter: &egui::Painter, rect: egui::Rect, color: Color32) {
-    let at = |x: f32, y: f32| rect.lerp_inside(vec2(x, y));
-    let radius = rect.width() * 0.42;
-    painter.circle_stroke(rect.center(), radius, (rect.width() * 0.08, color));
-    let width = rect.width() * 0.1;
-    painter.line_segment([at(0.5, 0.44), at(0.5, 0.74)], (width, color));
-    painter.circle_filled(at(0.5, 0.29), width * 0.65, color);
-}
 
 /// Rows the channel list keeps when the legend is dragged taller.
 const LIST_MIN_ROWS: f32 = 3.0;

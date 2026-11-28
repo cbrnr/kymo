@@ -1942,11 +1942,11 @@ fn rates_are_rounded_with_the_exact_one_on_hover() {
     harness.get_by_label_contains(&exact);
 }
 
-/// The summary's format and the ⓘ after it are one button, "Recording Info" for screen
-/// readers with the format as its value; hovering it names it and its shortcut, without the
-/// format's header fields, which are in Recording Info.
+/// The summary's format is a button, "Recording Info" for screen readers with the format
+/// as its value; hovering it names it and its shortcut, without the format's header fields,
+/// which are in Recording Info.
 #[test]
-fn the_format_is_one_button_with_its_info_sign() {
+fn the_format_is_a_button() {
     use egui::accesskit::Role;
     let file = TempFile::preset("bv-int16-multiplexed");
     let mut harness = window(file.path());
