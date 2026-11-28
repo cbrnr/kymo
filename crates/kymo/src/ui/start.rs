@@ -65,7 +65,7 @@ impl StartScreen {
         self.selected = self.selected.filter(|&i| i < count);
         let mut picked = None;
         if keys && count > 0 {
-            picked = self.keys(ui);
+            picked = self.keys(ui, count);
         }
         let icon = self
             .icon
@@ -104,8 +104,15 @@ impl StartScreen {
         picked
     }
 
-    /// ↑ and ↓ move through the recent recordings, Return opens the one moved to.
-    fn keys(&mut self, ui: &Ui) -> Option<Picked> {
+    /// Forgets the row the arrow keys moved to, as the list changes order once a
+    /// recording opens.
+    pub fn deselect(&mut self) {
+        self.selected = None;
+    }
+
+    /// ↑ and ↓ move through the `count` recent recordings, stopping at either end; Return
+    /// opens the one moved to.
+    fn keys(&mut self, ui: &Ui, count: usize) -> Option<Picked> {
         let (down, up, enter) = ui.ctx().input_mut(|i| {
             (
                 i.consume_key(Modifiers::NONE, Key::ArrowDown),
@@ -115,7 +122,7 @@ impl StartScreen {
         });
         self.moved = down || up;
         if down {
-            self.selected = Some(self.selected.map_or(0, |i| i + 1));
+            self.selected = Some(self.selected.map_or(0, |i| (i + 1).min(count - 1)));
         }
         if up {
             self.selected = Some(self.selected.map_or(0, |i| i.saturating_sub(1)));

@@ -901,6 +901,7 @@ impl KymoApp {
                 });
             }
             State::Loading(loading) => {
+                self.start.deselect();
                 let text = format!("Opening {}…", loading.path().display());
                 egui::CentralPanel::default().show(ui, |ui| {
                     ui.centered_and_justified(|ui| {

@@ -7031,17 +7031,40 @@ fn the_start_screen_opens_the_recent_recording_moved_to_with_the_arrow_keys() {
     let second = TempFile::preset("bdf+c-small");
     let mut harness = start_window(&[first.path(), second.path()]);
     harness.run_steps(2);
-    // Return opens nothing until a row is moved to; ↑ stops at the first.
-    harness.key_press(Key::Enter);
+    let keys = |h: &mut Harness<'_, KymoApp>, keys: &[Key]| {
+        for &key in keys {
+            h.key_press(key);
+            h.run_steps(1);
+        }
+    };
+    // Return opens nothing until a row is moved to; ↓ stops at the last.
+    keys(&mut harness, &[Key::Enter]);
     harness.run_steps(2);
-    assert!(harness.state().viewer().is_none());
-    for key in [Key::ArrowDown, Key::ArrowDown, Key::ArrowDown, Key::ArrowUp] {
-        harness.key_press(key);
-        harness.run_steps(1);
-    }
-    harness.key_press(Key::Enter);
+    harness.get_by_label(start::TITLE);
+    keys(
+        &mut harness,
+        &[Key::ArrowDown, Key::ArrowDown, Key::ArrowDown, Key::Enter],
+    );
     ready(&mut harness);
-    assert_eq!(viewer(&harness).document().path, first.path());
+    assert_eq!(viewer(&harness).document().path, second.path());
+
+    // Back on the start screen, the second one now on top, no row is moved to: Return opens
+    // nothing (not the first one, now where the second was); ↑ stops at the top.
+    harness.key_press_modifiers(command(), Key::W);
+    harness.run_steps(2);
+    assert_eq!(
+        harness.state().recent().paths(),
+        [second.path(), first.path()]
+    );
+    keys(&mut harness, &[Key::Enter]);
+    harness.run_steps(2);
+    harness.get_by_label(start::TITLE);
+    keys(
+        &mut harness,
+        &[Key::ArrowDown, Key::ArrowUp, Key::ArrowUp, Key::Enter],
+    );
+    ready(&mut harness);
+    assert_eq!(viewer(&harness).document().path, second.path());
 }
 
 #[test]
